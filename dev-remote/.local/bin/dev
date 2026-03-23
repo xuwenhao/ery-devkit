@@ -1,0 +1,435 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── Remote devcontainer connection tool ──────────────────────────────
+# Connects from local Mac to a devcontainer on a remote server,
+# with session management for worktree-based parallel development.
+#
+# Configuration: ~/.config/dev-remote/<profile>.conf
+
+# ── Color output helpers ─────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()   { echo -e "${GREEN}ℹ${NC} $*"; }
+warn()   { echo -e "${YELLOW}⚠${NC} $*"; }
+error()  { echo -e "${RED}✖${NC} $*" >&2; }
+header() { echo -e "\n${BOLD}${BLUE}$*${NC}"; }
+
+# ── Profile loading ──────────────────────────────────────────────────
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dev-remote"
+PROFILE=""
+
+load_profile() {
+    local profile="${PROFILE:-${DEV_PROFILE:-default}}"
+    local conf="$CONFIG_DIR/${profile}.conf"
+
+    if [ ! -f "$conf" ]; then
+        error "Profile not found: $conf"
+        echo "  Available profiles:"
+        for f in "$CONFIG_DIR"/*.conf; do
+            [ -f "$f" ] && echo "    $(basename "${f%.conf}")"
+        done
+        echo ""
+        echo "  Create one by copying the example:"
+        echo "    cp $CONFIG_DIR/example.conf $CONFIG_DIR/${profile}.conf"
+        exit 1
+    fi
+
+    # Source config (values override env vars via := default syntax in conf)
+    # shellcheck source=/dev/null
+    source "$conf"
+
+    # Validate required variables
+    : "${DEV_SSH_HOST:?DEV_SSH_HOST not set in profile '$profile'}"
+    : "${DEV_CONTAINER_PATTERN:?DEV_CONTAINER_PATTERN not set in profile '$profile'}"
+    : "${DEV_CONTAINER_USER:?DEV_CONTAINER_USER not set in profile '$profile'}"
+    : "${DEV_WORKSPACE:?DEV_WORKSPACE not set in profile '$profile'}"
+    DEV_FORWARD_PORTS="${DEV_FORWARD_PORTS:-}"
+    DEV_REMOTE_PROJECT_DIR="${DEV_REMOTE_PROJECT_DIR:-}"
+}
+
+# ── Usage ────────────────────────────────────────────────────────────
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--profile <name>] <command> [options]
+
+Connect to a remote devcontainer with session management.
+
+Commands:
+  connect [name] [options]    Connect to worktree session
+                              (default: "main" at project root)
+  status                      Show container status, worktrees, and tmux sessions
+  sync                        Pull latest main branch on remote
+  worktree <name>             Create worktree remotely + connect
+  worktree --list             List remote worktrees
+  worktree --remove <name>    Remove remote worktree (with safety checks)
+  worktree --remove <name> -f Remove remote worktree (skip safety checks)
+
+Options:
+  --profile <name>            Config profile (default: \$DEV_PROFILE or "default")
+                              Loads ~/.config/dev-remote/<name>.conf
+  --ports                     Forward ports via SSH
+  --tmux                      Use tmux (split panes/windows, but no graphics
+                              protocol passthrough)
+  --no-persist                Connect directly without session persistence
+  -h, --help                  Show this help message
+
+Profiles:
+  Config files live in ~/.config/dev-remote/<name>.conf
+  Copy example.conf to get started:
+    cp ~/.config/dev-remote/example.conf ~/.config/dev-remote/default.conf
+
+Examples:
+  $(basename "$0") connect                       # Attach to "main" session
+  $(basename "$0") connect my-feature            # Attach to "my-feature" session
+  $(basename "$0") connect --ports               # Connect with port forwarding
+  $(basename "$0") --profile ecap status         # Show status for "ecap" profile
+  $(basename "$0") worktree my-feature           # Create worktree + connect
+  $(basename "$0") worktree --list               # List worktrees
+  $(basename "$0") sync                          # Pull latest main on remote
+EOF
+}
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+# Find running container, or start it if stopped.
+# Sets CONTAINER_ID on success; returns 1 on failure.
+dev_find_container() {
+    # 1. Look for a running container matching the pattern
+    CONTAINER_ID=$(ssh "$DEV_SSH_HOST" \
+        "docker ps --filter 'name=$DEV_CONTAINER_PATTERN' --format '{{.ID}}' | head -1" 2>/dev/null)
+
+    if [ -n "$CONTAINER_ID" ]; then
+        return 0
+    fi
+
+    # 2. Check if a stopped container exists
+    local stopped_id
+    stopped_id=$(ssh "$DEV_SSH_HOST" \
+        "docker ps -a --filter 'name=$DEV_CONTAINER_PATTERN' --format '{{.ID}}' | head -1" 2>/dev/null)
+
+    if [ -n "$stopped_id" ]; then
+        if [ -z "$DEV_REMOTE_PROJECT_DIR" ]; then
+            error "Container is stopped but DEV_REMOTE_PROJECT_DIR is not set."
+            echo "  Set it in your profile config, e.g.:"
+            echo "    DEV_REMOTE_PROJECT_DIR=~/projects/your-project"
+            return 1
+        fi
+
+        info "Container is stopped. Starting via docker compose..."
+        ssh "$DEV_SSH_HOST" \
+            "cd '$DEV_REMOTE_PROJECT_DIR' && docker compose -f .devcontainer/docker-compose.yml up -d" || {
+            error "Failed to start container on remote host."
+            return 1
+        }
+
+        # Re-fetch the now-running container
+        CONTAINER_ID=$(ssh "$DEV_SSH_HOST" \
+            "docker ps --filter 'name=$DEV_CONTAINER_PATTERN' --format '{{.ID}}' | head -1" 2>/dev/null)
+
+        if [ -n "$CONTAINER_ID" ]; then
+            info "Container started: $CONTAINER_ID"
+            return 0
+        fi
+
+        error "Container started but could not find it running."
+        return 1
+    fi
+
+    # 3. No container at all
+    error "No container matching '$DEV_CONTAINER_PATTERN' found on $DEV_SSH_HOST."
+    echo "  Start the devcontainer on the remote host first, or set DEV_REMOTE_PROJECT_DIR"
+    echo "  in your profile for auto-start via docker compose."
+    return 1
+}
+
+# Run a command inside the remote container
+container_run() {
+    local workdir="$1"
+    shift
+    ssh "$DEV_SSH_HOST" \
+        "docker exec -u '$DEV_CONTAINER_USER' -w '$workdir' '$CONTAINER_ID' $*"
+}
+
+# ── connect ──────────────────────────────────────────────────────────
+
+cmd_connect() {
+    local name=""
+    local forward_ports=false
+    local session_mode="dtach"  # dtach | tmux | none
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ports) forward_ports=true; shift ;;
+            --tmux) session_mode="tmux"; shift ;;
+            --no-persist) session_mode="none"; shift ;;
+            -*) error "Unknown option: $1"; usage; exit 1 ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+
+    # Determine session name and working directory
+    local session_name workdir
+    if [ -z "$name" ]; then
+        session_name="main"
+        workdir="$DEV_WORKSPACE"
+    else
+        session_name="$name"
+        workdir="$DEV_WORKSPACE/.worktrees/$name"
+    fi
+
+    # Find or start the container
+    dev_find_container || exit 1
+
+    # Validate the working directory exists
+    if ! container_run "$DEV_WORKSPACE" test -d "$workdir" 2>/dev/null; then
+        error "Directory does not exist in container: $workdir"
+        if [ -n "$name" ]; then
+            echo "  Create the worktree first: $(basename "$0") worktree $name"
+        fi
+        exit 1
+    fi
+
+    # Build SSH args as an array to avoid eval + string concatenation
+    local -a ssh_args=(-t)
+    if [ "$forward_ports" = true ]; then
+        for port in $DEV_FORWARD_PORTS; do
+            ssh_args+=(-L "${port}:localhost:${port}")
+        done
+        info "Forwarding ports: $DEV_FORWARD_PORTS"
+    fi
+
+    # Forward terminal capability env vars so tools like Claude Code
+    # can detect the local terminal's image protocol support (iTerm2,
+    # Kitty, etc.) even through SSH + docker exec.
+    local -a env_args=()
+    for var in TERM_PROGRAM TERM_PROGRAM_VERSION COLORTERM KITTY_WINDOW_ID; do
+        if [ -n "${!var:-}" ]; then
+            env_args+=(-e "${var}=${!var}")
+        fi
+    done
+
+    # Use kitten ssh when available (Kitty terminal) to preserve graphics
+    # protocol support through the SSH tunnel; fall back to plain ssh otherwise.
+    local ssh_cmd="ssh"
+    if command -v kitten &>/dev/null && [ "${TERM_PROGRAM:-}" = "kitty" ]; then
+        ssh_cmd="kitten ssh"
+    fi
+
+    local docker_cmd
+    case "$session_mode" in
+        tmux)
+            info "Connecting to tmux session '$session_name' in $workdir"
+            docker_cmd="tmux new-session -A -s '$session_name'"
+            ;;
+        dtach)
+            local socket="/tmp/dtach-${session_name}"
+            info "Connecting to dtach session '$session_name' in $workdir (graphics passthrough + persist)"
+            docker_cmd="dtach -A '$socket' -z bash -l"
+            ;;
+        none)
+            info "Connecting directly (no tmux) to $workdir"
+            docker_cmd="exec zsh || exec bash"
+            ;;
+    esac
+
+    exec $ssh_cmd "${ssh_args[@]}" "$DEV_SSH_HOST" \
+        "docker exec -it ${env_args[*]} -u '$DEV_CONTAINER_USER' -w '$workdir' '$CONTAINER_ID' $docker_cmd"
+}
+
+# ── status ───────────────────────────────────────────────────────────
+
+cmd_status() {
+    header "Remote host: $DEV_SSH_HOST"
+
+    # Check SSH connectivity
+    if ! ssh -o ConnectTimeout=5 "$DEV_SSH_HOST" "echo ok" &>/dev/null; then
+        error "Cannot connect to $DEV_SSH_HOST"
+        exit 1
+    fi
+    info "SSH connection OK"
+
+    # Container status
+    header "Container status"
+    local running
+    running=$(ssh "$DEV_SSH_HOST" \
+        "docker ps --filter 'name=$DEV_CONTAINER_PATTERN' --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}'" 2>/dev/null)
+
+    if [ -n "$running" ]; then
+        echo "$running"
+
+        # Find container for further queries
+        dev_find_container || return
+
+        # Worktrees
+        header "Git worktrees"
+        container_run "$DEV_WORKSPACE" git worktree list 2>/dev/null || echo "  (none)"
+
+        # Tmux sessions
+        header "Tmux sessions"
+        container_run "$DEV_WORKSPACE" tmux list-sessions 2>/dev/null || echo "  (none)"
+    else
+        warn "No running container matching '$DEV_CONTAINER_PATTERN'"
+        echo ""
+        echo "  Stopped containers:"
+        ssh "$DEV_SSH_HOST" \
+            "docker ps -a --filter 'name=$DEV_CONTAINER_PATTERN' --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}'" 2>/dev/null \
+            || echo "  (none)"
+    fi
+}
+
+# ── worktree ─────────────────────────────────────────────────────────
+
+cmd_worktree() {
+    if [[ $# -eq 0 ]]; then
+        error "worktree requires a name or flag"
+        echo "  Usage: $(basename "$0") worktree <name>"
+        echo "         $(basename "$0") worktree --list"
+        echo "         $(basename "$0") worktree --remove <name>"
+        exit 1
+    fi
+
+    case "$1" in
+        -l|--list)
+            dev_find_container || exit 1
+            header "Remote worktrees"
+            container_run "$DEV_WORKSPACE" git worktree list
+            ;;
+        -r|--remove)
+            local name="${2:-}"
+            local force=false
+            if [ -z "$name" ]; then
+                error "--remove requires a name"
+                exit 1
+            fi
+            if [ "${3:-}" = "--force" ] || [ "${3:-}" = "-f" ]; then
+                force=true
+            fi
+            dev_find_container || exit 1
+
+            # Run safety checks remotely, prompt locally
+            if [ "$force" != "true" ]; then
+                local check_output
+                if check_output=$(container_run "$DEV_WORKSPACE" bash scripts/worktree.sh --no-tmux --check "$name" 2>&1); then
+                    info "All safety checks passed."
+                else
+                    warn "Issues found for worktree '$name':"
+                    echo "$check_output"
+                    echo ""
+                    read -rp "Remove anyway? [y/N] " confirm
+                    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+                        info "Aborted."
+                        exit 0
+                    fi
+                fi
+            fi
+
+            info "Killing tmux session '$name' (if exists)..."
+            container_run "$DEV_WORKSPACE" tmux kill-session -t "$name" 2>/dev/null || true
+
+            info "Removing worktree '$name'..."
+            container_run "$DEV_WORKSPACE" bash scripts/worktree.sh --no-tmux --remove "$name" --force
+            info "Worktree '$name' removed."
+            ;;
+        -*)
+            error "Unknown worktree option: $1"
+            exit 1
+            ;;
+        *)
+            local name="$1"
+            shift
+            dev_find_container || exit 1
+
+            info "Creating worktree '$name' on remote..."
+            container_run "$DEV_WORKSPACE" bash scripts/worktree.sh --no-tmux "$name"
+
+            info "Worktree created. Connecting..."
+            cmd_connect "$name" "$@"
+            ;;
+    esac
+}
+
+# ── sync ─────────────────────────────────────────────────────────────
+
+cmd_sync() {
+    dev_find_container || exit 1
+    header "Syncing main branch on remote"
+
+    # Check for uncommitted changes on main
+    local dirty
+    dirty=$(container_run "$DEV_WORKSPACE" git status --porcelain 2>&1) || true
+    if [ -n "$dirty" ]; then
+        warn "Remote workspace has uncommitted changes:"
+        echo "$dirty"
+        echo ""
+        read -rp "Stash changes and continue? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            info "Aborted."
+            exit 0
+        fi
+        container_run "$DEV_WORKSPACE" git stash
+        info "Changes stashed."
+    fi
+
+    container_run "$DEV_WORKSPACE" git checkout main
+    container_run "$DEV_WORKSPACE" git pull
+    info "Remote main branch synced to latest."
+}
+
+# ── Main dispatch ────────────────────────────────────────────────────
+
+# Parse global options before command
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --profile)
+            PROFILE="${2:-}"
+            if [ -z "$PROFILE" ]; then
+                error "--profile requires a name"
+                exit 1
+            fi
+            shift 2
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        -*)
+            # Could be a global flag we don't know — stop and let command handle it
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -eq 0 ]]; then
+    usage
+    exit 1
+fi
+
+COMMAND="$1"
+shift
+
+# Load profile config before executing command
+load_profile
+
+case "$COMMAND" in
+    connect)  cmd_connect "$@" ;;
+    status)   cmd_status "$@" ;;
+    sync)     cmd_sync "$@" ;;
+    worktree) cmd_worktree "$@" ;;
+    *)
+        error "Unknown command: $COMMAND"
+        usage
+        exit 1
+        ;;
+esac
