@@ -117,19 +117,26 @@ dev_find_container() {
         "docker ps -a --filter 'name=$DEV_CONTAINER_PATTERN' --format '{{.ID}}' | head -1" 2>/dev/null)
 
     if [ -n "$stopped_id" ]; then
-        if [ -z "$DEV_REMOTE_PROJECT_DIR" ]; then
-            error "Container is stopped but DEV_REMOTE_PROJECT_DIR is not set."
-            echo "  Set it in your profile config, e.g.:"
-            echo "    DEV_REMOTE_PROJECT_DIR=~/projects/your-project"
-            return 1
-        fi
+        # Try starting the existing stopped container first
+        info "Container is stopped. Starting..."
+        if ssh "$DEV_SSH_HOST" "docker start $stopped_id" >/dev/null 2>&1; then
+            :  # started successfully
+        else
+            # Fallback: recreate via docker compose
+            if [ -z "$DEV_REMOTE_PROJECT_DIR" ]; then
+                error "Container failed to start and DEV_REMOTE_PROJECT_DIR is not set."
+                echo "  Set it in your profile config, e.g.:"
+                echo "    DEV_REMOTE_PROJECT_DIR=~/projects/your-project"
+                return 1
+            fi
 
-        info "Container is stopped. Starting via docker compose..."
-        ssh "$DEV_SSH_HOST" \
-            "cd '$DEV_REMOTE_PROJECT_DIR' && docker compose -f .devcontainer/docker-compose.yml up -d" || {
-            error "Failed to start container on remote host."
-            return 1
-        }
+            warn "docker start failed, recreating via docker compose..."
+            ssh "$DEV_SSH_HOST" \
+                "cd $DEV_REMOTE_PROJECT_DIR && docker compose -f .devcontainer/docker-compose.yml up -d" || {
+                error "Failed to start container on remote host."
+                return 1
+            }
+        fi
 
         # Re-fetch the now-running container
         CONTAINER_ID=$(ssh "$DEV_SSH_HOST" \
