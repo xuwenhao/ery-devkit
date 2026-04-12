@@ -181,6 +181,7 @@ Commands:
   worktree --list             List remote worktrees
   worktree --remove <name>    Remove remote worktree (with safety checks)
   worktree --remove <name> -f Remove remote worktree (skip safety checks)
+  scaffold worktree           Deploy generic worktree.sh to remote repo
   list | profiles             List available profiles (marks auto-selected)
   init <name>                 Scaffold a new profile from example.conf
 
@@ -550,6 +551,57 @@ cmd_list() {
 
 # ── init ─────────────────────────────────────────────────────────────
 
+# ── scaffold ────────────────────────────────────────────────────────
+
+cmd_scaffold() {
+    if [[ $# -eq 0 ]]; then
+        error "scaffold requires a target"
+        echo "  Usage: $(basename "$0") scaffold worktree"
+        exit 1
+    fi
+
+    local target="$1"
+    shift
+
+    case "$target" in
+        worktree)
+            local template_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dev-remote/templates"
+            local template="$template_dir/worktree.sh"
+            if [ ! -f "$template" ]; then
+                error "Template not found: $template"
+                echo "  (re-stow the dev-remote package from your dotfiles repo)"
+                exit 1
+            fi
+            dev_find_container || exit 1
+
+            # Ensure scripts/ directory exists on remote
+            container_run "$DEV_WORKSPACE" mkdir -p scripts
+
+            # Copy template to remote via stdin
+            ssh "$DEV_SSH_HOST" \
+                "docker exec -i -u '$DEV_CONTAINER_USER' -w '$DEV_WORKSPACE' '$CONTAINER_ID' \
+                bash -c 'cat > scripts/worktree.sh && chmod +x scripts/worktree.sh'" \
+                < "$template"
+
+            info "Scaffolded scripts/worktree.sh → $DEV_WORKSPACE/scripts/"
+
+            # Check for setup hook
+            if container_run "$DEV_WORKSPACE" test -f scripts/.worktree-setup.sh 2>/dev/null; then
+                info "scripts/.worktree-setup.sh found"
+            else
+                warn "No scripts/.worktree-setup.sh — create one for repo-specific setup"
+            fi
+            ;;
+        *)
+            error "Unknown scaffold target: $target"
+            echo "  Available: worktree"
+            exit 1
+            ;;
+    esac
+}
+
+# ── init ─────────────────────────────────────────────────────────────
+
 cmd_init() {
     local name="${1:-}"
     if [ -z "$name" ]; then
@@ -626,7 +678,8 @@ case "$COMMAND" in
     connect)  cmd_connect "$@" ;;
     status)   cmd_status "$@" ;;
     sync)     cmd_sync "$@" ;;
-    worktree) cmd_worktree "$@" ;;
+    worktree)  cmd_worktree "$@" ;;
+    scaffold)  cmd_scaffold "$@" ;;
     *)
         error "Unknown command: $COMMAND"
         usage
