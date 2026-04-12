@@ -1,0 +1,63 @@
+#compdef dev
+
+_dev_profiles() {
+    local -a profiles
+    local conf
+    for conf in ${XDG_CONFIG_HOME:-$HOME/.config}/dev-remote/*.conf(N); do
+        [[ ${conf:t:r} == example ]] && continue
+        profiles+=(${conf:t:r})
+    done
+    _describe 'profile' profiles
+}
+
+_dev() {
+    local context state state_descr line
+    typeset -A opt_args
+
+    local -a commands
+    commands=(
+        'connect:Attach to a worktree session'
+        'status:Show container, worktrees, tmux sessions'
+        'sync:Pull latest main branch on remote'
+        'worktree:Create, list, or remove a worktree'
+        'list:List available profiles'
+        'profiles:List available profiles (alias for list)'
+        'init:Scaffold a new profile from example.conf'
+    )
+
+    _arguments -C \
+        '(-h --help)'{-h,--help}'[Show help]' \
+        '--profile[Config profile to use]:profile:_dev_profiles' \
+        '1: :->cmd' \
+        '*:: :->args'
+
+    case $state in
+        cmd)
+            _describe 'command' commands
+            ;;
+        args)
+            case $line[1] in
+                worktree)
+                    _arguments \
+                        '--list[List worktrees]' \
+                        '-l[List worktrees]' \
+                        '--remove[Remove a worktree]:name' \
+                        '-r[Remove a worktree]:name' \
+                        '1:worktree name'
+                    ;;
+                connect)
+                    _arguments \
+                        '--ports[Forward ports]' \
+                        '--tmux[Use tmux instead of dtach]' \
+                        '--no-persist[Skip session persistence]' \
+                        '1:session name'
+                    ;;
+                init)
+                    _message 'new profile name'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_dev "$@"

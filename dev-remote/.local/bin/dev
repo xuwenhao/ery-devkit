@@ -26,16 +26,119 @@ header() { echo -e "\n${BOLD}${BLUE}$*${NC}"; }
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dev-remote"
 PROFILE=""
 
+# List profile names (excluding example.conf) to stdout, one per line.
+list_profile_names() {
+    local conf name
+    for conf in "$CONFIG_DIR"/*.conf; do
+        [ -f "$conf" ] || continue
+        name=$(basename "${conf%.conf}")
+        [ "$name" = "example" ] && continue
+        echo "$name"
+    done
+}
+
+# Read a single variable from a profile config file without polluting the
+# caller's environment. Tilde/$HOME expansion happens via eval echo.
+profile_var() {
+    local conf="$1" var="$2"
+    bash -c '
+        '"$var"'=""
+        # shellcheck disable=SC1090
+        source "$1"
+        eval echo "${'"$var"'}"
+    ' _ "$conf" 2>/dev/null
+}
+
+# Auto-detect a profile based on $PWD.
+#   1. walk up from $PWD for a .dev-remote-profile file
+#   2. longest-prefix match on DEV_LOCAL_PROJECT_DIR across profiles
+#   3. fall back to "default" if default.conf exists
+detect_profile() {
+    local dir="$PWD"
+    while [ "$dir" != "/" ] && [ -n "$dir" ]; do
+        if [ -f "$dir/.dev-remote-profile" ]; then
+            local name
+            name=$(grep -Ev '^[[:space:]]*(#|$)' "$dir/.dev-remote-profile" | head -1 | tr -d '[:space:]')
+            if [ -n "$name" ] && [[ "$name" != */* && "$name" != *..* ]]; then
+                echo "$name"
+                return 0
+            fi
+        fi
+        dir=$(dirname "$dir")
+    done
+
+    local best_profile="" best_len=0
+    local conf name local_dir path
+    for conf in "$CONFIG_DIR"/*.conf; do
+        [ -f "$conf" ] || continue
+        name=$(basename "${conf%.conf}")
+        [ "$name" = "example" ] && continue
+        local_dir=$(profile_var "$conf" DEV_LOCAL_PROJECT_DIR) || continue
+        [ -z "$local_dir" ] && continue
+        for path in $local_dir; do
+            [ -z "$path" ] && continue
+            path="${path%/}"
+            case "$PWD/" in
+                "$path"/*)
+                    if [ "${#path}" -gt "$best_len" ]; then
+                        best_len=${#path}
+                        best_profile="$name"
+                    fi
+                    ;;
+            esac
+        done
+    done
+    if [ -n "$best_profile" ]; then
+        echo "$best_profile"
+        return 0
+    fi
+
+    if [ -f "$CONFIG_DIR/default.conf" ]; then
+        echo "default"
+        return 0
+    fi
+
+    return 1
+}
+
+no_profile_error() {
+    error "Could not determine which dev-remote profile to use."
+    echo ""
+    echo "  Available profiles:"
+    local name any=false
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        any=true
+        echo "    $name"
+    done < <(list_profile_names)
+    if [ "$any" = false ]; then
+        echo "    (none — copy $CONFIG_DIR/example.conf to get started)"
+    fi
+    echo ""
+    echo "  Ways to select one:"
+    echo "    $(basename "$0") --profile <name>"
+    echo "    export DEV_PROFILE=<name>"
+    echo "    echo <name> > .dev-remote-profile      (in a project directory)"
+    echo "    add DEV_LOCAL_PROJECT_DIR=\"$PWD\" to a profile config"
+}
+
 load_profile() {
-    local profile="${PROFILE:-${DEV_PROFILE:-default}}"
+    local profile="${PROFILE:-${DEV_PROFILE:-}}"
+    local auto=false
+    if [ -z "$profile" ]; then
+        if profile=$(detect_profile); then
+            auto=true
+        else
+            no_profile_error
+            exit 1
+        fi
+    fi
     local conf="$CONFIG_DIR/${profile}.conf"
 
     if [ ! -f "$conf" ]; then
         error "Profile not found: $conf"
         echo "  Available profiles:"
-        for f in "$CONFIG_DIR"/*.conf; do
-            [ -f "$f" ] && echo "    $(basename "${f%.conf}")"
-        done
+        list_profile_names | sed 's/^/    /'
         echo ""
         echo "  Create one by copying the example:"
         echo "    cp $CONFIG_DIR/example.conf $CONFIG_DIR/${profile}.conf"
@@ -53,6 +156,12 @@ load_profile() {
     : "${DEV_WORKSPACE:?DEV_WORKSPACE not set in profile '$profile'}"
     DEV_FORWARD_PORTS="${DEV_FORWARD_PORTS:-}"
     DEV_REMOTE_PROJECT_DIR="${DEV_REMOTE_PROJECT_DIR:-}"
+    DEV_LOCAL_PROJECT_DIR="${DEV_LOCAL_PROJECT_DIR:-}"
+
+    PROFILE="$profile"
+    if [ "$auto" = true ]; then
+        info "Auto-selected profile: $profile"
+    fi
 }
 
 # ── Usage ────────────────────────────────────────────────────────────
@@ -72,9 +181,11 @@ Commands:
   worktree --list             List remote worktrees
   worktree --remove <name>    Remove remote worktree (with safety checks)
   worktree --remove <name> -f Remove remote worktree (skip safety checks)
+  list | profiles             List available profiles (marks auto-selected)
+  init <name>                 Scaffold a new profile from example.conf
 
 Options:
-  --profile <name>            Config profile (default: \$DEV_PROFILE or "default")
+  --profile <name>            Config profile override
                               Loads ~/.config/dev-remote/<name>.conf
   --ports                     Forward ports via SSH
   --tmux                      Use tmux (split panes/windows, but no graphics
@@ -82,19 +193,27 @@ Options:
   --no-persist                Connect directly without session persistence
   -h, --help                  Show this help message
 
-Profiles:
-  Config files live in ~/.config/dev-remote/<name>.conf
-  Copy example.conf to get started:
+Profile resolution (first match wins):
+  1. --profile <name>
+  2. \$DEV_PROFILE environment variable
+  3. .dev-remote-profile file in \$PWD or any parent directory
+  4. Longest-prefix match of \$PWD against DEV_LOCAL_PROJECT_DIR in a config
+  5. default.conf (if it exists)
+
+  Run '$(basename "$0") list' to see profiles and which one matches here.
+  Copy the example to create your first profile:
     cp ~/.config/dev-remote/example.conf ~/.config/dev-remote/default.conf
 
 Examples:
-  $(basename "$0") connect                       # Attach to "main" session
+  $(basename "$0") connect                       # Auto-select profile, attach "main"
   $(basename "$0") connect my-feature            # Attach to "my-feature" session
   $(basename "$0") connect --ports               # Connect with port forwarding
-  $(basename "$0") --profile ecap status         # Show status for "ecap" profile
+  $(basename "$0") --profile ecap status         # Force "ecap" profile
   $(basename "$0") worktree my-feature           # Create worktree + connect
   $(basename "$0") worktree --list               # List worktrees
   $(basename "$0") sync                          # Pull latest main on remote
+  $(basename "$0") list                          # Show all profiles
+  $(basename "$0") init myproject                # Scaffold myproject.conf
 EOF
 }
 
@@ -391,6 +510,74 @@ cmd_sync() {
     info "Remote main branch synced to latest."
 }
 
+# ── list / profiles ──────────────────────────────────────────────────
+
+cmd_list() {
+    local current="${PROFILE:-${DEV_PROFILE:-}}"
+    if [ -z "$current" ]; then
+        current=$(detect_profile 2>/dev/null || true)
+    fi
+    header "dev-remote profiles"
+    local any=false
+    local conf name host pat local_dir marker
+    for conf in "$CONFIG_DIR"/*.conf; do
+        [ -f "$conf" ] || continue
+        name=$(basename "${conf%.conf}")
+        [ "$name" = "example" ] && continue
+        any=true
+        host=$(profile_var "$conf" DEV_SSH_HOST)
+        pat=$(profile_var "$conf" DEV_CONTAINER_PATTERN)
+        local_dir=$(profile_var "$conf" DEV_LOCAL_PROJECT_DIR)
+        marker="  "
+        [ "$name" = "$current" ] && marker="▶ "
+        printf "%s%-24s %s@%s\n" "$marker" "$name" "${pat:-?}" "${host:-?}"
+        if [ -n "$local_dir" ]; then
+            printf "    local: %s\n" "$local_dir"
+        fi
+    done
+    if [ "$any" = false ]; then
+        warn "No profiles found in $CONFIG_DIR"
+        echo "  Create one with: $(basename "$0") init <name>"
+        return
+    fi
+    echo ""
+    if [ -n "$current" ]; then
+        info "Current directory → $current"
+    else
+        warn "Current directory does not match any profile."
+    fi
+}
+
+# ── init ─────────────────────────────────────────────────────────────
+
+cmd_init() {
+    local name="${1:-}"
+    if [ -z "$name" ]; then
+        error "init requires a profile name"
+        echo "  Usage: $(basename "$0") init <name>"
+        exit 1
+    fi
+    if [[ "$name" == */* || "$name" == *..* ]]; then
+        error "Invalid profile name: $name"
+        exit 1
+    fi
+    local target="$CONFIG_DIR/${name}.conf"
+    if [ -e "$target" ]; then
+        error "$target already exists"
+        exit 1
+    fi
+    local example="$CONFIG_DIR/example.conf"
+    if [ ! -f "$example" ]; then
+        error "example.conf not found at $example"
+        echo "  (re-stow the dev-remote package from your dotfiles repo)"
+        exit 1
+    fi
+    mkdir -p "$CONFIG_DIR"
+    cp "$example" "$target"
+    info "Created $target"
+    info "Edit it: \${EDITOR:-vi} $target"
+}
+
 # ── Main dispatch ────────────────────────────────────────────────────
 
 # Parse global options before command
@@ -425,6 +612,12 @@ fi
 
 COMMAND="$1"
 shift
+
+# These commands don't need a profile loaded — handle them first.
+case "$COMMAND" in
+    list|profiles) cmd_list "$@"; exit 0 ;;
+    init)          cmd_init "$@"; exit 0 ;;
+esac
 
 # Load profile config before executing command
 load_profile
