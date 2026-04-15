@@ -1,0 +1,3 @@
+**/.config/**/*.conf
+!**/.config/**/example.conf
+.DS_Store
