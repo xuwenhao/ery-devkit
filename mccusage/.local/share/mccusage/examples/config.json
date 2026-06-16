@@ -1,0 +1,23 @@
+{
+  "ccusagePackage": "ccusage",
+  "timezone": "Asia/Shanghai",
+  "targets": [
+    {
+      "name": "local",
+      "type": "local",
+      "enabled": true
+    },
+    {
+      "name": "remote-devcontainer",
+      "type": "dev-remote",
+      "profile": "example-project",
+      "enabled": false
+    },
+    {
+      "name": "ssh-workstation",
+      "type": "ssh",
+      "host": "example-host",
+      "enabled": false
+    }
+  ]
+}

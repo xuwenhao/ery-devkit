@@ -1,0 +1,11 @@
+{
+  "ccusagePackage": "ccusage",
+  "timezone": "Asia/Shanghai",
+  "targets": [
+    {
+      "name": "local",
+      "type": "local",
+      "enabled": true
+    }
+  ]
+}
