@@ -7,6 +7,7 @@ A collection of personal CLI tools for remote development workflows. Each tool l
 | Tool | Description |
 | ---- | ----------- |
 | [`dev-remote`](./dev-remote) | Connect from a local machine to a devcontainer on a remote server, with tmux/dtach session management for worktree-based parallel development. |
+| [`mccusage`](./mccusage) | Aggregate `ccusage` token reports across local, SSH, and devcontainer targets. |
 
 ## Installation
 

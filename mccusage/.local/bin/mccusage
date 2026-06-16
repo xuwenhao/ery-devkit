@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_path="${BASH_SOURCE[0]}"
+while [ -L "$source_path" ]; do
+  dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+  link="$(readlink "$source_path")"
+  case "$link" in
+    /*) source_path="$link" ;;
+    *) source_path="$dir/$link" ;;
+  esac
+done
+
+script_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+exec node "$script_dir/../share/mccusage/dist/cli.js" "$@"

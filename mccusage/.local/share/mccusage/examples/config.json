@@ -1,0 +1,23 @@
+{
+  "ccusagePackage": "ccusage",
+  "timezone": "Asia/Shanghai",
+  "targets": [
+    {
+      "name": "local-mac",
+      "type": "local",
+      "enabled": true
+    },
+    {
+      "name": "ecap-workspace-devcontainer",
+      "type": "dev-remote",
+      "profile": "ecap-workspace",
+      "enabled": true
+    },
+    {
+      "name": "dmit",
+      "type": "ssh",
+      "host": "dmit",
+      "enabled": false
+    }
+  ]
+}
