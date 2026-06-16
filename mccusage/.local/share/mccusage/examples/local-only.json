@@ -3,7 +3,7 @@
   "timezone": "Asia/Shanghai",
   "targets": [
     {
-      "name": "local-mac",
+      "name": "local",
       "type": "local",
       "enabled": true
     }

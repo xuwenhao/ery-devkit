@@ -3,20 +3,20 @@
   "timezone": "Asia/Shanghai",
   "targets": [
     {
-      "name": "local-mac",
+      "name": "local",
       "type": "local",
       "enabled": true
     },
     {
-      "name": "ecap-workspace-devcontainer",
+      "name": "remote-devcontainer",
       "type": "dev-remote",
-      "profile": "ecap-workspace",
-      "enabled": true
+      "profile": "example-project",
+      "enabled": false
     },
     {
-      "name": "dmit",
+      "name": "ssh-workstation",
       "type": "ssh",
-      "host": "dmit",
+      "host": "example-host",
       "enabled": false
     }
   ]
