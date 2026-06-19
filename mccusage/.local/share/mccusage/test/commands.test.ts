@@ -50,8 +50,12 @@ describe("command construction", () => {
 
     expect(buildTargetCommand({ name: "box", type: "ssh", host: "box", enabled: true }, args)).toEqual({
       command: "ssh",
-      args: ["box", "npx -y ccusage claude monthly --json"],
-      display: "ssh box 'npx -y ccusage claude monthly --json'"
+      args: [
+        "box",
+        'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; npx -y ccusage claude monthly --json'
+      ],
+      display:
+        'ssh box \'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; npx -y ccusage claude monthly --json\''
     });
 
     expect(

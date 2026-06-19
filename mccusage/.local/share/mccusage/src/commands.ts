@@ -44,10 +44,11 @@ export function buildTargetCommand(target: Target, npxArgs: string[]): CommandDe
         display: npxCommand
       };
     case "ssh":
+      const sshCommand = withRemoteNvm(npxCommand);
       return {
         command: "ssh",
-        args: [target.host, npxCommand],
-        display: `ssh ${target.host} ${shellQuote(npxCommand)}`
+        args: [target.host, sshCommand],
+        display: `ssh ${target.host} ${shellQuote(sshCommand)}`
       };
     case "dev-remote":
       return {
@@ -56,6 +57,10 @@ export function buildTargetCommand(target: Target, npxArgs: string[]): CommandDe
         display: `dev-remote ${target.profile} :: ${npxCommand}`
       };
   }
+}
+
+function withRemoteNvm(command: string): string {
+  return `if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; ${command}`;
 }
 
 function buildDevRemoteScript(profile: string, npxArgs: string[]): string {
