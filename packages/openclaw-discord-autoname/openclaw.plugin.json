@@ -1,0 +1,13 @@
+{
+  "id": "discord-autoname",
+  "name": "Discord Thread Autoname",
+  "description": "Automatically renames Discord threads after agent replies.",
+  "entry": "dist/index.js",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}
