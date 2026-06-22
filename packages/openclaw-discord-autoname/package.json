@@ -1,0 +1,45 @@
+{
+  "name": "@xuwenhao83/openclaw-discord-autoname",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin that automatically renames Discord threads after agent replies.",
+  "type": "module",
+  "main": "dist/index.js",
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ]
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --target node20 --external openclaw --external openclaw/*",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "openclaw",
+    "discord",
+    "plugin"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.6.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "openclaw": "2026.6.6",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
+  }
+}

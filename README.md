@@ -1,6 +1,8 @@
 # ery-devkit
 
-A collection of personal CLI tools for remote development workflows. Each tool lives in its own subdirectory and is laid out as a [GNU Stow](https://www.gnu.org/software/stow/) package — the directory structure under each tool directly mirrors `$HOME`.
+A collection of personal development tools. Most host tools live in their own
+subdirectory as [GNU Stow](https://www.gnu.org/software/stow/) packages. npm
+packages live under `packages/`.
 
 ## Tools
 
@@ -8,6 +10,15 @@ A collection of personal CLI tools for remote development workflows. Each tool l
 | ---- | ----------- |
 | [`dev-remote`](./dev-remote) | Connect from a local machine to a devcontainer on a remote server, with tmux/dtach session management for worktree-based parallel development. |
 | [`mccusage`](./mccusage) | Aggregate `ccusage` token reports across local, SSH, and devcontainer targets. |
+| [`@xuwenhao83/openclaw-discord-autoname`](./packages/openclaw-discord-autoname) | OpenClaw plugin that automatically renames Discord threads after agent replies. |
+
+## npm packages
+
+```bash
+pnpm install
+pnpm --filter @xuwenhao83/openclaw-discord-autoname test
+pnpm --filter @xuwenhao83/openclaw-discord-autoname build
+```
 
 ## Installation
 
