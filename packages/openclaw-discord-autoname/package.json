@@ -4,6 +4,14 @@
   "description": "OpenClaw plugin that automatically renames Discord threads after agent replies.",
   "type": "module",
   "main": "dist/index.js",
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ]
+  },
   "files": [
     "dist",
     "openclaw.plugin.json",

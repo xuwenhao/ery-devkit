@@ -2,12 +2,53 @@
   "id": "discord-autoname",
   "name": "Discord Thread Autoname",
   "description": "Automatically renames Discord threads after agent replies.",
-  "entry": "dist/index.js",
   "activation": {
     "onStartup": true
   },
   "configSchema": {
     "type": "object",
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "OpenAI-compatible API base URL, for example https://api.openai.com/v1."
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "OpenAI-compatible API key. Prefer apiKeyEnv for shared configs."
+      },
+      "apiKeyEnv": {
+        "type": "string",
+        "description": "Environment variable that contains the API key."
+      },
+      "model": {
+        "type": "string",
+        "description": "Chat Completions model used to generate thread titles."
+      },
+      "prompt": {
+        "type": "string",
+        "description": "Prompt template. Use {conversation} where recent messages should be inserted."
+      },
+      "tokenInterval": {
+        "type": "number",
+        "minimum": 1,
+        "description": "Token increase required before renaming an already-renamed thread."
+      },
+      "maxInputChars": {
+        "type": "number",
+        "minimum": 1,
+        "description": "Maximum recent conversation characters sent to the title model."
+      },
+      "maxOutputTokens": {
+        "type": "number",
+        "minimum": 1,
+        "description": "Maximum output tokens for the title model."
+      },
+      "temperature": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Sampling temperature for the title model."
+      }
+    },
     "additionalProperties": false
   }
 }

@@ -1,8 +1,12 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import {
+  buildChatCompletionsUrl,
   buildRecentConversationText,
+  buildTitlePrompt,
   cleanGeneratedTitle,
   normalizeDiscordChannelId,
+  resolveApiKey,
+  resolveAutonamePluginConfig,
   shouldRenameSession,
   type RenameState
 } from "./title.js";
@@ -53,9 +57,10 @@ export default definePluginEntry({
       if (!channelId) return;
 
       try {
+        const config = resolveAutonamePluginConfig(api.pluginConfig);
         const state = renameState.get(ctx.sessionKey) || DEFAULT_RENAME_STATE;
         const currentTokens = sessionTokens.get(ctx.sessionKey) || 0;
-        if (!shouldRenameSession(state, currentTokens)) return;
+        if (!shouldRenameSession(state, currentTokens, config.tokenInterval)) return;
 
         renameState.set(ctx.sessionKey, {
           hasInitialRename: true,
@@ -63,7 +68,7 @@ export default definePluginEntry({
         });
 
         const recentMessages = buildRecentConversationText(event.messages || []);
-        runAsyncRenameTask(channelId, recentMessages);
+        runAsyncRenameTask(channelId, recentMessages, config);
       } catch (err) {
         console.error("[discord-autoname] Error in agent_end hook:", err);
       }
@@ -71,40 +76,44 @@ export default definePluginEntry({
   }
 });
 
-function runAsyncRenameTask(channelId: string, contextText: string) {
+function runAsyncRenameTask(channelId: string, contextText: string, config: ReturnType<typeof resolveAutonamePluginConfig>) {
   Promise.resolve().then(async () => {
     try {
-      const sfKey = process.env.SILICONFLOW_API_KEY;
+      const chatCompletionsApiKey = resolveApiKey(config);
       const discordToken = process.env.DISCORD_BOT_TOKEN;
 
-      if (!sfKey || !discordToken) {
-        console.warn("[discord-autoname] Missing SILICONFLOW_API_KEY or DISCORD_BOT_TOKEN in env. Skipping.");
+      if (!chatCompletionsApiKey || !discordToken) {
+        const missing = [
+          chatCompletionsApiKey ? null : `${config.apiKeyEnv} or configured apiKey`,
+          discordToken ? null : "DISCORD_BOT_TOKEN"
+        ].filter(Boolean);
+        console.warn(`[discord-autoname] Missing ${missing.join(" and ")}. Skipping.`);
         return;
       }
 
-      const prompt = `根据以下的对话片段，总结出一个5到10个字以内的精确短标题作为Discord讨论串的名字。只需输出最终标题文本，绝不能包含引号、标点符号、前缀、说明等任何多余字符。\n\n对话片段：\n${contextText.slice(-3000)}`;
+      const prompt = buildTitlePrompt(config.prompt, contextText, config.maxInputChars);
 
-      const sfRes = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
+      const completionRes = await fetch(buildChatCompletionsUrl(config.baseUrl), {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${sfKey}`,
+          Authorization: `Bearer ${chatCompletionsApiKey}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "deepseek-ai/DeepSeek-V4-Flash",
+          model: config.model,
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 20,
-          temperature: 0.3
+          max_tokens: config.maxOutputTokens,
+          temperature: config.temperature
         })
       });
 
-      if (!sfRes.ok) {
-        console.error("[discord-autoname] SiliconFlow API Error:", await sfRes.text());
+      if (!completionRes.ok) {
+        console.error("[discord-autoname] Chat Completions API Error:", await completionRes.text());
         return;
       }
 
-      const sfData = (await sfRes.json()) as any;
-      const title = cleanGeneratedTitle(sfData.choices?.[0]?.message?.content);
+      const completionData = (await completionRes.json()) as any;
+      const title = cleanGeneratedTitle(completionData.choices?.[0]?.message?.content);
       if (!title) {
         console.warn("[discord-autoname] Failed to generate title from LLM response");
         return;
