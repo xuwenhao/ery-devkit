@@ -1,15 +1,31 @@
 {
-  "name": "mccusage",
+  "name": "@xuwenhao83/mccusage",
   "version": "0.1.0",
-  "private": true,
+  "description": "Aggregate ccusage token reports across multiple configured machines.",
   "type": "module",
   "bin": {
     "mccusage": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "ccusage",
+    "claude",
+    "codex",
+    "token-usage",
+    "cli"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^24.10.2",
