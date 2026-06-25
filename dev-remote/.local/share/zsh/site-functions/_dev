@@ -16,6 +16,7 @@ _dev() {
 
     local -a commands
     commands=(
+        'ssh:SSH to a host shell'
         'connect:Attach to a worktree session'
         'status:Show container, worktrees, tmux sessions'
         'sync:Pull latest main branch on remote'
@@ -51,6 +52,11 @@ _dev() {
                         '--tmux[Use tmux instead of dtach]' \
                         '--no-persist[Skip session persistence]' \
                         '1:session name'
+                    ;;
+                ssh)
+                    _arguments \
+                        '--no-persist[Use plain SSH instead of dtach]' \
+                        '1:host alias'
                     ;;
                 init)
                     _message 'new profile name'

@@ -173,6 +173,7 @@ Usage: $(basename "$0") [--profile <name>] <command> [options]
 Connect to a remote devcontainer with session management.
 
 Commands:
+  ssh [host] [options]        SSH to a host shell (default: ai-series)
   connect [name] [options]    Connect to worktree session
                               (default: "main" at project root)
   status                      Show container status, worktrees, and tmux sessions
@@ -206,6 +207,8 @@ Profile resolution (first match wins):
     cp ~/.config/dev-remote/example.conf ~/.config/dev-remote/default.conf
 
 Examples:
+  $(basename "$0") ssh                           # Attach to ai-series shell via dtach
+  $(basename "$0") ssh ai-series --no-persist    # Plain SSH to ai-series
   $(basename "$0") connect                       # Auto-select profile, attach "main"
   $(basename "$0") connect my-feature            # Attach to "my-feature" session
   $(basename "$0") connect --ports               # Connect with port forwarding
@@ -219,6 +222,51 @@ EOF
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+cmd_ssh() {
+    local host="ai-series"
+    local persist=true
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-persist)
+                persist=false
+                shift
+                ;;
+            -h|--help)
+                cat <<EOF
+Usage: $(basename "$0") ssh [host] [--no-persist]
+
+SSH to a host shell. Defaults to ai-series.
+
+Options:
+  --no-persist    Use plain SSH instead of attaching a dtach session
+EOF
+                return 0
+                ;;
+            -*)
+                error "Unknown ssh option: $1"
+                exit 1
+                ;;
+            *)
+                host="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [ "$persist" != true ]; then
+        exec ssh -t "$host"
+    fi
+
+    local socket_host socket
+    socket_host="${host//[^[:alnum:]._-]/_}"
+    socket="/tmp/dev-${socket_host}-shell"
+
+    info "Attaching to $host shell via dtach ($socket)"
+    exec ssh -t "$host" \
+        "if command -v dtach >/dev/null 2>&1; then exec dtach -A '$socket' -z zsh -l; else echo 'dtach not found on remote host; falling back to plain zsh' >&2; exec zsh -l; fi"
+}
 
 # Find running container, or start it if stopped.
 # Sets CONTAINER_ID on success; returns 1 on failure.
@@ -667,6 +715,7 @@ shift
 
 # These commands don't need a profile loaded — handle them first.
 case "$COMMAND" in
+    ssh)           cmd_ssh "$@"; exit 0 ;;
     list|profiles) cmd_list "$@"; exit 0 ;;
     init)          cmd_init "$@"; exit 0 ;;
 esac
