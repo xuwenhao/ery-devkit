@@ -178,8 +178,9 @@ Commands:
                               Attach Codex in a persistent host session
   claude [--host <host>] [path]
                               Attach Claude in a persistent host session
-  tmux [--host <host>] [path]
+  tmux [--host <host>] [--name <name>] [path]
                               Attach to a persistent host shell tmux session
+                              (--name keeps several sessions for one path)
   connect [name] [options]    Connect to worktree session
                               (default: "main" at project root)
   status                      Show container status, worktrees, and tmux sessions
@@ -218,6 +219,7 @@ Examples:
   $(basename "$0") codex --host hfmac ~/Codebase/personal/dotfiles
   $(basename "$0") claude ~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo
   $(basename "$0") tmux ~/Codebase/personal/dotfiles
+  $(basename "$0") tmux --name review            # Second session for same path
   $(basename "$0") connect                       # Auto-select profile, attach "main"
   $(basename "$0") connect my-feature            # Attach to "my-feature" session
   $(basename "$0") connect --ports               # Connect with port forwarding
@@ -379,6 +381,7 @@ EOF
 cmd_host_tmux() {
     local host="ai-series"
     local path=""
+    local name=""
     local session path_expr
 
     while [[ $# -gt 0 ]]; do
@@ -399,12 +402,32 @@ cmd_host_tmux() {
                 fi
                 shift
                 ;;
+            --name)
+                if [[ -z "${2:-}" ]]; then
+                    error "--name requires a value"
+                    exit 1
+                fi
+                name="$2"
+                shift 2
+                ;;
+            --name=*)
+                name="${1#--name=}"
+                if [[ -z "$name" ]]; then
+                    error "--name requires a value"
+                    exit 1
+                fi
+                shift
+                ;;
             -h|--help)
                 cat <<EOF
-Usage: $(basename "$0") tmux [--host <host>] [path]
+Usage: $(basename "$0") tmux [--host <host>] [--name <name>] [path]
 
 Attach to a persistent tmux shell session on a remote host.
 Defaults to ~/Codebase on ai-series.
+
+The session name is derived from the path, so the same path always
+reattaches to the same session. Pass --name to keep several independent
+sessions for one path (e.g. --name review, --name scratch).
 EOF
                 return 0
                 ;;
@@ -426,6 +449,9 @@ EOF
     path="${path:-~/Codebase}"
     path="$(trim_remote_path "$(normalize_remote_path "$path")")"
     session="dev-host-$(session_slug "$path")"
+    if [[ -n "$name" ]]; then
+        session="$session-${name//[^[:alnum:]_-]/_}"
+    fi
     path_expr="$(remote_path_expr "$path")"
 
     info "Attaching to host tmux session '$session' on $host in $path"
