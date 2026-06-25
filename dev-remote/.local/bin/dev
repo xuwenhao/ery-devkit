@@ -174,8 +174,10 @@ Connect to a remote devcontainer with session management.
 
 Commands:
   ssh [host] [options]        SSH to a host shell (default: ai-series)
-  codex [path]                Attach Codex in a persistent host session
-  claude [path]               Attach Claude in a persistent host session
+  codex [--host <host>] [path]
+                              Attach Codex in a persistent host session
+  claude [--host <host>] [path]
+                              Attach Claude in a persistent host session
   connect [name] [options]    Connect to worktree session
                               (default: "main" at project root)
   status                      Show container status, worktrees, and tmux sessions
@@ -211,6 +213,7 @@ Profile resolution (first match wins):
 Examples:
   $(basename "$0") ssh                           # Plain SSH to ai-series
   $(basename "$0") codex ~/Codebase/personal/dotfiles
+  $(basename "$0") codex --host hfmac ~/Codebase/personal/dotfiles
   $(basename "$0") claude ~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo
   $(basename "$0") connect                       # Auto-select profile, attach "main"
   $(basename "$0") connect my-feature            # Attach to "my-feature" session
@@ -313,27 +316,53 @@ cmd_agent() {
     local tool="$1"
     shift
     local host="ai-series"
-    local path="${1:-~/Codebase}"
+    local path=""
     local session path_expr agent_command
 
-    if [[ $# -gt 1 ]]; then
-        error "$tool accepts at most one path"
-        exit 1
-    fi
-    if [[ "$path" == "-h" || "$path" == "--help" ]]; then
-        cat <<EOF
-Usage: $(basename "$0") $tool [path]
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host)
+                if [[ -z "${2:-}" ]]; then
+                    error "--host requires a host"
+                    exit 1
+                fi
+                host="$2"
+                shift 2
+                ;;
+            --host=*)
+                host="${1#--host=}"
+                if [[ -z "$host" ]]; then
+                    error "--host requires a host"
+                    exit 1
+                fi
+                shift
+                ;;
+            -h|--help)
+                cat <<EOF
+Usage: $(basename "$0") $tool [--host <host>] [path]
 
-Attach to a persistent $tool session on ai-series.
+Attach to a persistent $tool session on a remote host.
 Defaults to ~/Codebase. Pass a repo or worktree path to keep sessions scoped.
+Defaults to host ai-series; pass --host to choose another SSH target.
 EOF
-        return 0
-    fi
-    if [[ "$path" == -* ]]; then
-        error "Unknown $tool option: $path"
-        exit 1
-    fi
+                return 0
+                ;;
+            -*)
+                error "Unknown $tool option: $1"
+                exit 1
+                ;;
+            *)
+                if [[ -n "$path" ]]; then
+                    error "$tool accepts at most one path"
+                    exit 1
+                fi
+                path="$1"
+                shift
+                ;;
+        esac
+    done
 
+    path="${path:-~/Codebase}"
     path="$(trim_remote_path "$(normalize_remote_path "$path")")"
     session="dev-${tool}-$(session_slug "$path")"
     path_expr="$(remote_path_expr "$path")"
