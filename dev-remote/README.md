@@ -62,6 +62,8 @@ dev [--profile <name>] <command> [options]
 
 Commands:
   ssh [host] [options]        SSH to a host shell (default: ai-series)
+  codex [path]                Attach Codex in a persistent host session
+  claude [path]               Attach Claude in a persistent host session
   connect [name] [options]    Connect to a worktree session (default: "main")
   status                      Show container status, worktrees, tmux sessions
   sync                        Pull latest main branch on remote
@@ -77,6 +79,16 @@ Options:
   --ports                     Forward ports via SSH
   --tmux                      Use tmux instead of dtach (split panes, no graphics)
   --no-persist                Connect directly, no session persistence
+```
+
+`dev ssh` is a clean SSH login and does not reuse a persistent shell. Use
+`dev codex [path]` or `dev claude [path]` for long-running agent sessions that
+should survive laptop sleep or network changes. The optional path defaults to
+`~/Codebase`; pass a repo or worktree path to keep each session scoped:
+
+```bash
+dev codex ~/Codebase/personal/dotfiles
+dev claude ~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo
 ```
 
 ## Worktree scaffolding
