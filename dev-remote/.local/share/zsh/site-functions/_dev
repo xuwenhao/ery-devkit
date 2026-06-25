@@ -17,6 +17,8 @@ _dev() {
     local -a commands
     commands=(
         'ssh:SSH to a host shell'
+        'codex:Attach Codex in a persistent host session'
+        'claude:Attach Claude in a persistent host session'
         'connect:Attach to a worktree session'
         'status:Show container, worktrees, tmux sessions'
         'sync:Pull latest main branch on remote'
@@ -55,8 +57,11 @@ _dev() {
                     ;;
                 ssh)
                     _arguments \
-                        '--no-persist[Use plain SSH instead of dtach]' \
                         '1:host alias'
+                    ;;
+                codex|claude)
+                    _arguments \
+                        '1:remote path'
                     ;;
                 init)
                     _message 'new profile name'
