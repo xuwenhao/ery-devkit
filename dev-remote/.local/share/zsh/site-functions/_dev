@@ -19,6 +19,7 @@ _dev() {
         'ssh:SSH to a host shell'
         'codex:Attach Codex in a persistent host session'
         'claude:Attach Claude in a persistent host session'
+        'tmux:Attach to a persistent host shell tmux session'
         'connect:Attach to a worktree session'
         'status:Show container, worktrees, tmux sessions'
         'sync:Pull latest main branch on remote'
@@ -59,8 +60,9 @@ _dev() {
                     _arguments \
                         '1:host alias'
                     ;;
-                codex|claude)
+                codex|claude|tmux)
                     _arguments \
+                        '--host[SSH host to use]:host alias' \
                         '1:remote path'
                     ;;
                 init)

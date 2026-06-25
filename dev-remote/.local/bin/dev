@@ -178,6 +178,8 @@ Commands:
                               Attach Codex in a persistent host session
   claude [--host <host>] [path]
                               Attach Claude in a persistent host session
+  tmux [--host <host>] [path]
+                              Attach to a persistent host shell tmux session
   connect [name] [options]    Connect to worktree session
                               (default: "main" at project root)
   status                      Show container status, worktrees, and tmux sessions
@@ -215,6 +217,7 @@ Examples:
   $(basename "$0") codex ~/Codebase/personal/dotfiles
   $(basename "$0") codex --host hfmac ~/Codebase/personal/dotfiles
   $(basename "$0") claude ~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo
+  $(basename "$0") tmux ~/Codebase/personal/dotfiles
   $(basename "$0") connect                       # Auto-select profile, attach "main"
   $(basename "$0") connect my-feature            # Attach to "my-feature" session
   $(basename "$0") connect --ports               # Connect with port forwarding
@@ -371,6 +374,63 @@ EOF
     info "Attaching to $tool session '$session' on $host in $path"
     exec ssh -t "$host" \
         "if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s $(shell_quote "$session") -c $path_expr $(shell_quote "$agent_command"); else cd $path_expr || exit; echo 'tmux not found on remote host; falling back to direct $tool' >&2; exec zsh -lic $(shell_quote "exec $tool"); fi"
+}
+
+cmd_host_tmux() {
+    local host="ai-series"
+    local path=""
+    local session path_expr
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host)
+                if [[ -z "${2:-}" ]]; then
+                    error "--host requires a host"
+                    exit 1
+                fi
+                host="$2"
+                shift 2
+                ;;
+            --host=*)
+                host="${1#--host=}"
+                if [[ -z "$host" ]]; then
+                    error "--host requires a host"
+                    exit 1
+                fi
+                shift
+                ;;
+            -h|--help)
+                cat <<EOF
+Usage: $(basename "$0") tmux [--host <host>] [path]
+
+Attach to a persistent tmux shell session on a remote host.
+Defaults to ~/Codebase on ai-series.
+EOF
+                return 0
+                ;;
+            -*)
+                error "Unknown tmux option: $1"
+                exit 1
+                ;;
+            *)
+                if [[ -n "$path" ]]; then
+                    error "tmux accepts at most one path"
+                    exit 1
+                fi
+                path="$1"
+                shift
+                ;;
+        esac
+    done
+
+    path="${path:-~/Codebase}"
+    path="$(trim_remote_path "$(normalize_remote_path "$path")")"
+    session="dev-host-$(session_slug "$path")"
+    path_expr="$(remote_path_expr "$path")"
+
+    info "Attaching to host tmux session '$session' on $host in $path"
+    exec ssh -t "$host" \
+        "if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s $(shell_quote "$session") -c $path_expr; else cd $path_expr || exit; echo 'tmux not found on remote host; falling back to direct shell' >&2; exec zsh -l || exec bash -l; fi"
 }
 
 # Find running container, or start it if stopped.
@@ -822,6 +882,7 @@ shift
 case "$COMMAND" in
     ssh)           cmd_ssh "$@"; exit 0 ;;
     codex|claude)  cmd_agent "$COMMAND" "$@"; exit 0 ;;
+    tmux)          cmd_host_tmux "$@"; exit 0 ;;
     list|profiles) cmd_list "$@"; exit 0 ;;
     init)          cmd_init "$@"; exit 0 ;;
 esac
