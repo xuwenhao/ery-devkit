@@ -56,6 +56,15 @@ expected_agent_args() {
         "$host" "$session" "$remote_path" "$tool" "$remote_path" "$tool" "$tool"
 }
 
+expected_tmux_args() {
+    local path="$1"
+    local remote_path="$2"
+    local host="${3:-ai-series}"
+    local session="dev-host-$(session_slug "$path")"
+    printf -- '-t\n%s\nif command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s '\''%s'\'' -c %s; else cd %s || exit; echo '\''tmux not found on remote host; falling back to direct shell'\'' >&2; exec zsh -l || exec bash -l; fi' \
+        "$host" "$session" "$remote_path" "$remote_path"
+}
+
 remote_codebase='"$HOME"/'\''Codebase'\'''
 remote_dotfiles='"$HOME"/'\''Codebase/personal/dotfiles'\'''
 remote_ecap_worktree='"$HOME"/'\''Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo'\'''
@@ -77,6 +86,15 @@ assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote
 
 "$DEV" codex --host=hfmac '~/Codebase/personal/dotfiles'
 assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
+
+"$DEV" tmux
+assert_args "$(expected_tmux_args '~/Codebase' "$remote_codebase")"
+
+"$DEV" tmux --host hfmac '~/Codebase/personal/dotfiles'
+assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
+
+"$DEV" tmux --host=hfmac '~/Codebase/personal/dotfiles'
+assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
 
 HOME="/Users/tester" "$DEV" codex /Users/tester/Codebase/personal/dotfiles
 assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote_dotfiles")"

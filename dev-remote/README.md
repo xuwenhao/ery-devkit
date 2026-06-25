@@ -66,6 +66,8 @@ Commands:
                               Attach Codex in a persistent host session
   claude [--host <host>] [path]
                               Attach Claude in a persistent host session
+  tmux [--host <host>] [path]
+                              Attach to a persistent host shell tmux session
   connect [name] [options]    Connect to a worktree session (default: "main")
   status                      Show container status, worktrees, tmux sessions
   sync                        Pull latest main branch on remote
@@ -86,14 +88,18 @@ Options:
 `dev ssh` is a clean SSH login and does not reuse a persistent shell. Use
 `dev codex [--host <host>] [path]` or `dev claude [--host <host>] [path]` for
 long-running agent sessions that should survive laptop sleep or network
-changes. The optional path defaults to `~/Codebase`; pass a repo or worktree
-path to keep each session scoped. The optional host defaults to `ai-series`:
+changes. Use `dev tmux [--host <host>] [path]` when you want a persistent host
+shell first, then start or stop agents manually inside it. The optional path
+defaults to `~/Codebase`; pass a repo or worktree path to keep each session
+scoped. The optional host defaults to `ai-series`:
 
 ```bash
 dev codex ~/Codebase/personal/dotfiles
 dev codex --host hfmac ~/Codebase/personal/dotfiles
 dev claude ~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo
 dev claude --host oci-dev2.ssh.buildagi.us ~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo
+dev tmux ~/Codebase/personal/dotfiles
+dev tmux --host hfmac ~/Codebase/personal/dotfiles
 ```
 
 ## Worktree scaffolding
