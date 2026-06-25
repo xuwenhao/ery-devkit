@@ -61,6 +61,7 @@ Run `dev list` to see all profiles and which one would be auto-selected in the c
 dev [--profile <name>] <command> [options]
 
 Commands:
+  ssh [host] [options]        SSH to a host shell (default: ai-series)
   connect [name] [options]    Connect to a worktree session (default: "main")
   status                      Show container status, worktrees, tmux sessions
   sync                        Pull latest main branch on remote
