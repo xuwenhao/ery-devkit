@@ -50,10 +50,15 @@ expected_agent_args() {
     local tool="$1"
     local path="$2"
     local remote_path="$3"
+    local host="${4:-ai-series}"
     local session="dev-${tool}-$(session_slug "$path")"
-    printf -- '-t\nai-series\nif command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s '\''%s'\'' -c %s '\''zsh -lic "exec %s"'\''; else cd %s || exit; echo '\''tmux not found on remote host; falling back to direct %s'\'' >&2; exec zsh -lic '\''exec %s'\''; fi' \
-        "$session" "$remote_path" "$tool" "$remote_path" "$tool" "$tool"
+    printf -- '-t\n%s\nif command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s '\''%s'\'' -c %s '\''zsh -lic "exec %s"'\''; else cd %s || exit; echo '\''tmux not found on remote host; falling back to direct %s'\'' >&2; exec zsh -lic '\''exec %s'\''; fi' \
+        "$host" "$session" "$remote_path" "$tool" "$remote_path" "$tool" "$tool"
 }
+
+remote_codebase='"$HOME"/'\''Codebase'\'''
+remote_dotfiles='"$HOME"/'\''Codebase/personal/dotfiles'\'''
+remote_ecap_worktree='"$HOME"/'\''Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo'\'''
 
 "$DEV" ssh
 assert_args $'-t\nai-series'
@@ -62,16 +67,25 @@ assert_args $'-t\nai-series'
 assert_args $'-t\nhfmac'
 
 "$DEV" codex
-assert_args "$(expected_agent_args codex '~/Codebase' '"$HOME"/'\''Codebase'\')"
+assert_args "$(expected_agent_args codex '~/Codebase' "$remote_codebase")"
 
 "$DEV" codex '~/Codebase/personal/dotfiles'
-assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' '"$HOME"/'\''Codebase/personal/dotfiles'\')"
+assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote_dotfiles")"
+
+"$DEV" codex --host hfmac '~/Codebase/personal/dotfiles'
+assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
+
+"$DEV" codex --host=hfmac '~/Codebase/personal/dotfiles'
+assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
 
 HOME="/Users/tester" "$DEV" codex /Users/tester/Codebase/personal/dotfiles
-assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' '"$HOME"/'\''Codebase/personal/dotfiles'\')"
+assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote_dotfiles")"
 
 "$DEV" claude '~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo'
-assert_args "$(expected_agent_args claude '~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo' '"$HOME"/'\''Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo'\')"
+assert_args "$(expected_agent_args claude '~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo' "$remote_ecap_worktree")"
+
+"$DEV" claude --host oci-dev2.ssh.buildagi.us '~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo'
+assert_args "$(expected_agent_args claude '~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo' "$remote_ecap_worktree" oci-dev2.ssh.buildagi.us)"
 
 "$DEV" codex '~/Codebase/foo/bar'
 foo_bar_path_args="$(cat "$DEV_TEST_SSH_ARGS")"
