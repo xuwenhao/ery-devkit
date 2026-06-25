@@ -60,7 +60,9 @@ expected_tmux_args() {
     local path="$1"
     local remote_path="$2"
     local host="${3:-ai-series}"
+    local name="${4:-}"
     local session="dev-host-$(session_slug "$path")"
+    [[ -n "$name" ]] && session="$session-${name//[^[:alnum:]_-]/_}"
     printf -- '-t\n%s\nif command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s '\''%s'\'' -c %s; else cd %s || exit; echo '\''tmux not found on remote host; falling back to direct shell'\'' >&2; exec zsh -l || exec bash -l; fi' \
         "$host" "$session" "$remote_path" "$remote_path"
 }
@@ -95,6 +97,28 @@ assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfil
 
 "$DEV" tmux --host=hfmac '~/Codebase/personal/dotfiles'
 assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
+
+# --name suffixes the session so one path can host several sessions.
+"$DEV" tmux --name review
+assert_args "$(expected_tmux_args '~/Codebase' "$remote_codebase" ai-series review)"
+
+"$DEV" tmux --name=scratch '~/Codebase/personal/dotfiles'
+assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfiles" ai-series scratch)"
+
+# A bare path with --name still defaults the host to ai-series, and the name
+# is sanitized to tmux-safe chars (slash -> underscore).
+"$DEV" tmux --host hfmac --name 'feat/x' '~/Codebase/personal/dotfiles'
+assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac 'feat/x')"
+
+# Same path, different --name -> distinct sessions.
+"$DEV" tmux --name one
+name_one_args="$(cat "$DEV_TEST_SSH_ARGS")"
+"$DEV" tmux --name two
+name_two_args="$(cat "$DEV_TEST_SSH_ARGS")"
+if [[ "$name_one_args" == "$name_two_args" ]]; then
+    printf 'Expected distinct session args for different --name values\n' >&2
+    exit 1
+fi
 
 HOME="/Users/tester" "$DEV" codex /Users/tester/Codebase/personal/dotfiles
 assert_args "$(expected_agent_args codex '~/Codebase/personal/dotfiles' "$remote_dotfiles")"
