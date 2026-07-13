@@ -178,8 +178,9 @@ Commands:
                               Attach Codex in a persistent host session
   claude [--host <host>] [path]
                               Attach Claude in a persistent host session
-  tmux [--host <host>] [--name <name>] [path]
+  tmux [--host <host>] [--name <name>] [path | <tmux-subcommand> [args...]]
                               Attach to a persistent host shell tmux session
+                              or run a remote tmux management command
                               (--name keeps several sessions for one path)
   connect [name] [options]    Connect to worktree session
                               (default: "main" at project root)
@@ -220,6 +221,9 @@ Examples:
   $(basename "$0") claude ~/Codebase/srpone/zooclaw/ecap-workspace/.worktrees/foo
   $(basename "$0") tmux ~/Codebase/personal/dotfiles
   $(basename "$0") tmux --name review            # Second session for same path
+  $(basename "$0") tmux ls                       # List remote tmux sessions
+  $(basename "$0") tmux kill-session -t <name>   # Kill a remote tmux session
+  $(basename "$0") tmux -- <raw args>            # Run any remote tmux command
   $(basename "$0") connect                       # Auto-select profile, attach "main"
   $(basename "$0") connect my-feature            # Attach to "my-feature" session
   $(basename "$0") connect --ports               # Connect with port forwarding
@@ -382,7 +386,9 @@ cmd_host_tmux() {
     local host="ai-series"
     local path=""
     local name=""
-    local session path_expr
+    local passthrough=false
+    local session path_expr tmux_command arg
+    local -a tmux_args=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -418,9 +424,15 @@ cmd_host_tmux() {
                 fi
                 shift
                 ;;
+            --)
+                shift
+                tmux_args=("$@")
+                passthrough=true
+                break
+                ;;
             -h|--help)
                 cat <<EOF
-Usage: $(basename "$0") tmux [--host <host>] [--name <name>] [path]
+Usage: $(basename "$0") tmux [--host <host>] [--name <name>] [path | <tmux-subcommand> [args...]]
 
 Attach to a persistent tmux shell session on a remote host.
 Defaults to ~/Codebase on ai-series.
@@ -428,11 +440,30 @@ Defaults to ~/Codebase on ai-series.
 The session name is derived from the path, so the same path always
 reattaches to the same session. Pass --name to keep several independent
 sessions for one path (e.g. --name review, --name scratch).
+
+The following tmux subcommands are passed through to the remote host:
+  ls, list-sessions, kill-session, kill-server, has-session
+All arguments after a recognized subcommand are passed to tmux unchanged
+and are no longer parsed by dev. Use -- to pass through any tmux command.
+
+Examples:
+  $(basename "$0") tmux ls
+  $(basename "$0") tmux kill-session -t <name>
+  $(basename "$0") tmux -- ls -F '#{session_name}'
 EOF
                 return 0
                 ;;
             -*)
                 error "Unknown tmux option: $1"
+                exit 1
+                ;;
+            ls|list-sessions|kill-session|kill-server|has-session)
+                if [[ -z "$path" ]]; then
+                    tmux_args=("$@")
+                    passthrough=true
+                    break
+                fi
+                error "tmux accepts at most one path"
                 exit 1
                 ;;
             *)
@@ -445,6 +476,18 @@ EOF
                 ;;
         esac
     done
+
+    if [[ "$passthrough" = true ]]; then
+        if [[ ${#tmux_args[@]} -eq 0 ]]; then
+            error "tmux -- requires a tmux command (e.g. -- ls -F '#{session_name}')"
+            exit 1
+        fi
+        tmux_command="tmux"
+        for arg in "${tmux_args[@]}"; do
+            tmux_command+=" $(shell_quote "$arg")"
+        done
+        exec ssh "$host" "$tmux_command"
+    fi
 
     path="${path:-~/Codebase}"
     path="$(trim_remote_path "$(normalize_remote_path "$path")")"

@@ -98,6 +98,24 @@ assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfil
 "$DEV" tmux --host=hfmac '~/Codebase/personal/dotfiles'
 assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
 
+# Recognized tmux subcommands and all following args are passed through without
+# allocating a tty.
+"$DEV" tmux ls
+assert_args $'ai-series\ntmux '\''ls'\'''
+
+"$DEV" tmux kill-session -t foo
+assert_args $'ai-series\ntmux '\''kill-session'\'' '\''-t'\'' '\''foo'\'''
+
+"$DEV" tmux --host hfmac ls
+assert_args $'hfmac\ntmux '\''ls'\'''
+
+"$DEV" tmux -- ls -F '#{session_name}'
+assert_args $'ai-series\ntmux '\''ls'\'' '\''-F'\'' '\''#{session_name}'\'''
+
+# A path still uses attach-or-create with a tty and the existing session slug.
+"$DEV" tmux "$HOME/Codebase"
+assert_args "$(expected_tmux_args '~/Codebase' "$remote_codebase")"
+
 # --name suffixes the session so one path can host several sessions.
 "$DEV" tmux --name review
 assert_args "$(expected_tmux_args '~/Codebase' "$remote_codebase" ai-series review)"
