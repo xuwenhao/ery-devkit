@@ -185,7 +185,7 @@ function center(value: string, width: number): string {
 }
 
 function firstColumn(view: View): string {
-  return view === "daily" ? "Date" : view === "monthly" ? "Month" : "Session";
+  return view === "daily" ? "Date" : view === "weekly" ? "Week" : view === "monthly" ? "Month" : "Session";
 }
 
 function periodLabel(period: string): string {
@@ -193,7 +193,15 @@ function periodLabel(period: string): string {
 }
 
 function agentLabel(agent: string): string {
-  return agent === "claude" ? "Claude" : agent === "codex" ? "Codex" : titleCase(agent);
+  return agent === "openclaw"
+    ? "OpenClaw"
+    : agent === "opencode"
+      ? "OpenCode"
+      : agent === "claude"
+        ? "Claude"
+        : agent === "codex"
+          ? "Codex"
+          : titleCase(agent);
 }
 
 function titleCase(value: string): string {

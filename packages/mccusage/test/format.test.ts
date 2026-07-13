@@ -65,6 +65,19 @@ describe("formatTextReport", () => {
                 totalTokens: 100,
                 costUSD: 1.25
               }
+            },
+            {
+              agent: "openclaw",
+              models: ["[openclaw] zai-org/GLM-5.2"],
+              totals: {
+                inputTokens: 5,
+                outputTokens: 6,
+                cacheCreationTokens: 7,
+                cacheReadTokens: 8,
+                reasoningOutputTokens: 0,
+                totalTokens: 26,
+                costUSD: 0.75
+              }
             }
           ]
         }
@@ -87,6 +100,15 @@ describe("formatTextReport", () => {
           reasoningOutputTokens: 5,
           totalTokens: 100,
           costUSD: 1.25
+        },
+        openclaw: {
+          inputTokens: 5,
+          outputTokens: 6,
+          cacheCreationTokens: 7,
+          cacheReadTokens: 8,
+          reasoningOutputTokens: 0,
+          totalTokens: 26,
+          costUSD: 0.75
         }
       },
       byTarget: {
@@ -105,17 +127,21 @@ describe("formatTextReport", () => {
 
     const output = formatTextReport(report, { view: "daily" });
 
+    const weeklyOutput = formatTextReport(report, { view: "weekly" });
     expect(output).toContain("Multi-Machine Token Usage Report - Daily");
     expect(output).toMatch(/│\s*Date\s*│\s*Agent/);
     expect(output).toMatch(/│\s*2026-06-16\s*│\s*All/);
     expect(output).toMatch(/│\s*│\s*- Claude/);
     expect(output).toMatch(/│\s*│\s*- Codex/);
+    expect(output).toMatch(/│\s*│\s*- OpenClaw/);
     expect(output).toContain("- opus-4-8");
     expect(output).toContain("- gpt-5.5");
+    expect(output).toContain("- [openclaw] zai-org/GLM-5.2");
     expect(output).toMatch(/│ Total\s+│\s+│\s+│/);
     expect(output).toContain("Cost (USD)");
     expect(output).not.toContain("Reasoning");
     expect(output).not.toContain("By Target");
     expect(output).not.toContain("mccusage aggregate");
+    expect(weeklyOutput).toMatch(/│\s*Week\s*│\s*Agent/);
   });
 });

@@ -27,22 +27,20 @@ const ZERO_TOTALS: TokenTotals = {
   totalTokens: 0
 };
 
-export function aggregateResults(input: { view: View; results: CollectionResult[] }): AggregateReport {
+export function aggregateResults(input: { view: View; results: CollectionResult[]; agents?: Agent[] }): AggregateReport {
   const totals = emptyTotals();
-  const byAgent: Record<Agent, TokenTotals> = {
-    claude: emptyTotals(),
-    codex: emptyTotals()
-  };
+  const byAgent: Record<Agent, TokenTotals> = {};
   const byTarget: Record<string, TokenTotals> = {};
   const periods = new Map<string, PeriodTotals>();
   const breakdowns = new Map<string, PeriodBreakdown>();
   const failures = [];
+  const agentFilter = input.agents ? new Set(input.agents.map((agent) => agent.toLowerCase())) : undefined;
 
   for (const result of input.results) {
     if (!result.ok) {
       failures.push({
         target: result.target,
-        agent: result.agent,
+        agent: "all",
         error: result.error ?? "unknown error"
       });
       continue;
@@ -50,27 +48,35 @@ export function aggregateResults(input: { view: View; results: CollectionResult[
 
     const rows = rowsForView(result.data, input.view);
     for (const row of rows) {
-      const rowTotals = totalsFromObject(row);
-      addTotals(totals, rowTotals);
-      addTotals(byAgent[result.agent], rowTotals);
-      byTarget[result.target] ??= emptyTotals();
-      addTotals(byTarget[result.target], rowTotals);
-
       const period = periodKey(row, input.view);
-      const existing = periods.get(period) ?? { period, ...emptyTotals() };
-      addTotals(existing, rowTotals);
-      periods.set(period, existing);
+      const agentRows = agentRowsFromRow(row);
 
-      const periodBreakdown = breakdowns.get(period) ?? {
-        period,
-        totals: emptyTotals(),
-        agents: []
-      };
-      addTotals(periodBreakdown.totals, rowTotals);
-      const agentBreakdown = ensureAgentBreakdown(periodBreakdown, result.agent);
-      addTotals(agentBreakdown.totals, rowTotals);
-      mergeModels(agentBreakdown.models, modelNamesFromRow(row, result.agent));
-      breakdowns.set(period, periodBreakdown);
+      for (const { agent, data } of agentRows) {
+        if (agentFilter && !agentFilter.has(agent)) {
+          continue;
+        }
+        const rowTotals = totalsFromObject(data);
+        addTotals(totals, rowTotals);
+        byAgent[agent] ??= emptyTotals();
+        addTotals(byAgent[agent], rowTotals);
+        byTarget[result.target] ??= emptyTotals();
+        addTotals(byTarget[result.target], rowTotals);
+
+        const existing = periods.get(period) ?? { period, ...emptyTotals() };
+        addTotals(existing, rowTotals);
+        periods.set(period, existing);
+
+        const periodBreakdown = breakdowns.get(period) ?? {
+          period,
+          totals: emptyTotals(),
+          agents: []
+        };
+        addTotals(periodBreakdown.totals, rowTotals);
+        const agentBreakdown = ensureAgentBreakdown(periodBreakdown, agent);
+        addTotals(agentBreakdown.totals, rowTotals);
+        mergeModels(agentBreakdown.models, modelNamesFromRow(data));
+        breakdowns.set(period, periodBreakdown);
+      }
     }
   }
 
@@ -78,7 +84,7 @@ export function aggregateResults(input: { view: View; results: CollectionResult[
     .sort((a, b) => a.period.localeCompare(b.period))
     .map((breakdown) => ({
       ...breakdown,
-      agents: breakdown.agents.sort((a, b) => agentSort(a.agent) - agentSort(b.agent))
+      agents: breakdown.agents.sort((a, b) => a.agent.localeCompare(b.agent))
     }));
 
   return {
@@ -139,27 +145,42 @@ function mergeModels(target: string[], models: string[]): void {
   target.sort();
 }
 
-function modelNamesFromRow(row: unknown, agent: Agent): string[] {
+interface AgentRow {
+  agent: Agent;
+  data: Record<string, unknown>;
+}
+
+function agentRowsFromRow(row: unknown): AgentRow[] {
   if (!isRecord(row)) {
     return [];
   }
-  if (agent === "claude") {
-    const modelBreakdowns = row.modelBreakdowns;
-    if (Array.isArray(modelBreakdowns)) {
-      return modelBreakdowns
-        .map((entry) => (isRecord(entry) && typeof entry.modelName === "string" ? entry.modelName : undefined))
-        .filter((value): value is string => value != null);
+  const entries = Array.isArray(row.agents) ? row.agents : [row];
+  const rows: AgentRow[] = [];
+  for (const entry of entries) {
+    if (!isRecord(entry) || typeof entry.agent !== "string" || entry.agent.length === 0) {
+      continue;
     }
-    const modelsUsed = row.modelsUsed;
-    return Array.isArray(modelsUsed) ? modelsUsed.filter((value): value is string => typeof value === "string") : [];
+    rows.push({ agent: entry.agent.toLowerCase(), data: entry });
   }
-
-  const models = row.models;
-  return isRecord(models) ? Object.keys(models).sort() : [];
+  return rows;
 }
 
-function agentSort(agent: Agent): number {
-  return agent === "claude" ? 0 : 1;
+function modelNamesFromRow(row: unknown): string[] {
+  if (!isRecord(row)) {
+    return [];
+  }
+  const modelsUsed = row.modelsUsed;
+  if (Array.isArray(modelsUsed)) {
+    return modelsUsed.filter((value): value is string => typeof value === "string");
+  }
+  const modelBreakdowns = row.modelBreakdowns;
+  if (Array.isArray(modelBreakdowns)) {
+    return modelBreakdowns
+      .map((entry) => (isRecord(entry) && typeof entry.modelName === "string" ? entry.modelName : undefined))
+      .filter((value): value is string => value != null);
+  }
+  const models = row.models;
+  return isRecord(models) ? Object.keys(models).sort() : [];
 }
 
 function rowsForView(data: unknown, view: View): unknown[] {
@@ -174,7 +195,7 @@ function periodKey(row: unknown, view: View): string {
   if (!isRecord(row)) {
     return "unknown";
   }
-  const key = view === "daily" ? row.date : view === "monthly" ? row.month : row.sessionId ?? row.id;
+  const key = row.period ?? (view === "daily" ? row.date : view === "weekly" ? row.week : view === "monthly" ? row.month : row.sessionId ?? row.id);
   return typeof key === "string" && key.length > 0 ? key : "unknown";
 }
 

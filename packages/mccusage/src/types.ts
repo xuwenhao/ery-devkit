@@ -1,6 +1,6 @@
-export type Agent = "claude" | "codex";
+export type Agent = string;
 
-export type View = "daily" | "monthly" | "session";
+export type View = "daily" | "weekly" | "monthly" | "session";
 
 export type Target = LocalTarget | SshTarget | DevRemoteTarget;
 
@@ -46,7 +46,6 @@ export type ExecFn = (command: string, args: string[]) => Promise<ExecResult>;
 
 export interface CollectionResult {
   target: string;
-  agent: Agent;
   ok: boolean;
   data?: unknown;
   error?: string;

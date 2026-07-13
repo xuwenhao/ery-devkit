@@ -4,19 +4,18 @@ import { buildCcusageArgs, buildTargetCommand } from "../src/commands.js";
 
 describe("command construction", () => {
   it("keeps ccusage cost output by default", () => {
-    expect(buildCcusageArgs({ agent: "codex", view: "daily" })).toEqual([
+    expect(buildCcusageArgs({ view: "daily" })).toEqual([
       "-y",
       "ccusage",
-      "codex",
       "daily",
-      "--json"
+      "--json",
+      "--by-agent"
     ]);
   });
 
-  it("builds focused ccusage args for an agent and view", () => {
+  it("builds unified ccusage args for a view", () => {
     expect(
       buildCcusageArgs({
-        agent: "codex",
         view: "daily",
         since: "2026-06-01",
         until: "2026-06-16",
@@ -26,9 +25,9 @@ describe("command construction", () => {
     ).toEqual([
       "-y",
       "ccusage",
-      "codex",
       "daily",
       "--json",
+      "--by-agent",
       "--since",
       "2026-06-01",
       "--until",
@@ -40,22 +39,22 @@ describe("command construction", () => {
   });
 
   it("builds local, ssh, and dev-remote command descriptors", () => {
-    const args = ["-y", "ccusage", "claude", "monthly", "--json"];
+    const args = ["-y", "ccusage", "monthly", "--json", "--by-agent"];
 
     expect(buildTargetCommand({ name: "local", type: "local", enabled: true }, args)).toEqual({
       command: "npx",
       args,
-      display: "npx -y ccusage claude monthly --json"
+      display: "npx -y ccusage monthly --json --by-agent"
     });
 
     expect(buildTargetCommand({ name: "box", type: "ssh", host: "box", enabled: true }, args)).toEqual({
       command: "ssh",
       args: [
         "box",
-        'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; npx -y ccusage claude monthly --json'
+        'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; npx -y ccusage monthly --json --by-agent'
       ],
       display:
-        'ssh box \'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; npx -y ccusage claude monthly --json\''
+        'ssh box \'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; npx -y ccusage monthly --json --by-agent\''
     });
 
     expect(
@@ -65,7 +64,7 @@ describe("command construction", () => {
       )
     ).toMatchObject({
       command: "bash",
-      display: "dev-remote ecap-workspace :: npx -y ccusage claude monthly --json"
+      display: "dev-remote ecap-workspace :: npx -y ccusage monthly --json --by-agent"
     });
   });
 });

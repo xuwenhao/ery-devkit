@@ -6,7 +6,7 @@ import type { Agent, AggregateReport, Config, ExecFn, ExecResult, View } from ".
 
 export interface CollectUsageOptions {
   config: Config;
-  agents: Agent[];
+  agents?: Agent[];
   view: View;
   since?: string;
   until?: string;
@@ -20,48 +20,42 @@ export async function collectUsage(options: CollectUsageOptions): Promise<Aggreg
   const jobs = [];
 
   for (const target of options.config.targets) {
-    for (const agent of options.agents) {
-      const npxArgs = buildCcusageArgs({
-        agent,
-        view: options.view,
-        since: options.since,
-        until: options.until,
-        timezone: options.config.timezone,
-        includeCost: options.includeCost,
-        ccusagePackage: options.config.ccusagePackage
-      });
-      const descriptor = buildTargetCommand(target, npxArgs);
-      jobs.push(async () => {
-        const result = await exec(descriptor.command, descriptor.args);
-        if (result.exitCode !== 0) {
-          return {
-            target: target.name,
-            agent,
-            ok: false,
-            error: result.stderr.trim() || `Command failed: ${descriptor.display}`
-          } as const;
-        }
-        try {
-          return {
-            target: target.name,
-            agent,
-            ok: true,
-            data: JSON.parse(result.stdout)
-          } as const;
-        } catch (error) {
-          return {
-            target: target.name,
-            agent,
-            ok: false,
-            error: `Invalid JSON from ${descriptor.display}: ${String(error)}`
-          } as const;
-        }
-      });
-    }
+    const npxArgs = buildCcusageArgs({
+      view: options.view,
+      since: options.since,
+      until: options.until,
+      timezone: options.config.timezone,
+      includeCost: options.includeCost,
+      ccusagePackage: options.config.ccusagePackage
+    });
+    const descriptor = buildTargetCommand(target, npxArgs);
+    jobs.push(async () => {
+      const result = await exec(descriptor.command, descriptor.args);
+      if (result.exitCode !== 0) {
+        return {
+          target: target.name,
+          ok: false,
+          error: result.stderr.trim() || `Command failed: ${descriptor.display}`
+        } as const;
+      }
+      try {
+        return {
+          target: target.name,
+          ok: true,
+          data: JSON.parse(result.stdout)
+        } as const;
+      } catch (error) {
+        return {
+          target: target.name,
+          ok: false,
+          error: `Invalid JSON from ${descriptor.display}: ${String(error)}`
+        } as const;
+      }
+    });
   }
 
   const results = await runWithConcurrency(jobs, options.concurrency ?? 4);
-  return aggregateResults({ view: options.view, results });
+  return aggregateResults({ view: options.view, results, agents: options.agents });
 }
 
 export function spawnExec(command: string, args: string[]): Promise<ExecResult> {

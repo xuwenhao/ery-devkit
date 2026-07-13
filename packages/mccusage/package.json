@@ -22,6 +22,7 @@
     "claude",
     "codex",
     "token-usage",
+    "openclaw",
     "cli"
   ],
   "license": "MIT",
