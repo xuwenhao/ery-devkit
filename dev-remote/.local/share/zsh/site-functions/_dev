@@ -60,10 +60,17 @@ _dev() {
                     _arguments \
                         '1:host alias'
                     ;;
-                codex|claude|tmux)
+                codex|claude)
                     _arguments \
                         '--host[SSH host to use]:host alias' \
                         '1:remote path'
+                    ;;
+                tmux)
+                    _arguments \
+                        '--host[SSH host to use]:host alias' \
+                        '--name[Keep several sessions for one path]:session name' \
+                        '1:remote path or tmux subcommand:(ls list-sessions kill-session kill-server has-session)' \
+                        '*::tmux argument'
                     ;;
                 init)
                     _message 'new profile name'
