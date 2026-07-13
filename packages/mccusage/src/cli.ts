@@ -4,13 +4,12 @@ import { formatTextReport } from "./format.js";
 import { collectUsage } from "./run.js";
 import type { Agent, View } from "./types.js";
 
-const VALID_VIEWS = new Set<View>(["daily", "monthly", "session"]);
-const VALID_AGENTS = new Set<Agent>(["claude", "codex"]);
+const VALID_VIEWS = new Set<View>(["daily", "weekly", "monthly", "session"]);
 
 interface CliOptions {
   view: View;
   configPath: string;
-  agents: Agent[];
+  agents?: Agent[];
   since?: string;
   until?: string;
   timezone?: string;
@@ -53,13 +52,12 @@ function parseArgs(args: string[]): CliOptions {
     process.exit(0);
   }
   if (!VALID_VIEWS.has(viewArg as View)) {
-    throw new Error(`Invalid view "${viewArg}". Expected daily, monthly, or session.`);
+    throw new Error(`Invalid view "${viewArg}". Expected daily, weekly, monthly, or session.`);
   }
 
   const options: CliOptions = {
     view: viewArg as View,
     configPath: defaultConfigPath(),
-    agents: ["claude", "codex"],
     includeCost: true,
     json: false,
     concurrency: 4
@@ -112,16 +110,18 @@ function parseArgs(args: string[]): CliOptions {
 }
 
 function parseAgents(value: string): Agent[] {
-  const agents = value.split(",").map((agent) => agent.trim()).filter(Boolean);
+  const agents = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((agent) => agent.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
   if (agents.length === 0) {
     throw new Error("--agents must include at least one agent");
   }
-  for (const agent of agents) {
-    if (!VALID_AGENTS.has(agent as Agent)) {
-      throw new Error(`Invalid agent "${agent}". Expected claude or codex.`);
-    }
-  }
-  return agents as Agent[];
+  return agents;
 }
 
 function readValue(args: string[], index: number, flag: string): string {
@@ -133,17 +133,17 @@ function readValue(args: string[], index: number, flag: string): string {
 }
 
 function printHelp(): void {
-  console.log(`Usage: mccusage <daily|monthly|session> [options]
+  console.log(`Usage: mccusage <daily|weekly|monthly|session> [options]
 
 Options:
   --config <path>          Config file path (default: ~/.config/mccusage/config.json)
-  --agents <list>          Comma-separated agents: claude,codex
+  --agents <list>          Comma-separated agent names (default: all detected)
   --since <YYYY-MM-DD>     Start date passed to ccusage
   --until <YYYY-MM-DD>     End date passed to ccusage
   --no-cost                Hide cost fields in ccusage JSON/output
   --include-cost           Show cost fields (default; kept for compatibility)
   --json                   Print aggregate JSON
-  --concurrency <n>        Concurrent target-agent jobs (default: 4)
+  --concurrency <n>        Concurrent target jobs (default: 4)
   -h, --help               Show this help
 `);
 }

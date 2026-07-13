@@ -1,8 +1,7 @@
-import type { Agent, CommandDescriptor, Target, View } from "./types.js";
+import type { CommandDescriptor, Target, View } from "./types.js";
 import { shellJoin, shellQuote } from "./shell.js";
 
 export interface CcusageArgsOptions {
-  agent: Agent;
   view: View;
   since?: string;
   until?: string;
@@ -15,9 +14,9 @@ export function buildCcusageArgs(options: CcusageArgsOptions): string[] {
   const args = [
     "-y",
     options.ccusagePackage ?? "ccusage",
-    options.agent,
     options.view,
-    "--json"
+    "--json",
+    "--by-agent"
   ];
   if (options.since) {
     args.push("--since", options.since);
