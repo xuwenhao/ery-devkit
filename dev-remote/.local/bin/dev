@@ -475,7 +475,7 @@ confirm_destructive_tmux() {
         kill-server)
             session_count="$(ssh "$host" "tmux list-sessions -F '#{session_name}' 2>/dev/null | wc -l" 2>/dev/null || true)"
             session_count="${session_count//[[:space:]]/}"
-            if [[ -n "$session_count" ]]; then
+            if [[ -n "$session_count" && "$session_count" != "0" ]]; then
                 warn "This will terminate all $session_count remote tmux session(s)." >&2
             else
                 warn "This will terminate all remote tmux sessions." >&2
