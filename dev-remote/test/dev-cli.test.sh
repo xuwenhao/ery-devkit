@@ -158,6 +158,10 @@ assert_fails_without_ssh \
     'Refusing destructive tmux command without interactive confirmation.' \
     "$DEV" tmux -- ls ';' kill-server
 
+assert_fails_without_ssh \
+    'Refusing destructive tmux command without interactive confirmation.' \
+    "$DEV" tmux -- ls ';' -L dev-socket kill-server
+
 # A session whose name matches a destructive command is still a read-only query.
 "$DEV" tmux -- has-session -t kill-server
 assert_args $'ai-series\ntmux '\''has-session'\'' '\''-t'\'' '\''kill-server'\'''

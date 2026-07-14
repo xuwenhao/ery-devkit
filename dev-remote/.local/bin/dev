@@ -427,6 +427,7 @@ tmux_destructive_subcommand() {
             command_position=false
         elif [[ "$arg" = ";" || "$arg" = '\;' ]]; then
             command_position=true
+            global_options=true
         fi
         shift
     done
