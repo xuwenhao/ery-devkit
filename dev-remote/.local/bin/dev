@@ -178,7 +178,8 @@ Commands:
                               Attach Codex in a persistent host session
   claude [--host <host>] [path]
                               Attach Claude in a persistent host session
-  tmux [--host <host>] [--name <name>] [path | <tmux-subcommand> [args...]]
+  tmux [--host <host>] [--name <name>] [-f|--force]
+       [path | <tmux-subcommand> [args...]]
                               Attach to a persistent host shell tmux session
                               or run a remote tmux management command
                               (--name keeps several sessions for one path)
@@ -222,7 +223,8 @@ Examples:
   $(basename "$0") tmux ~/Codebase/personal/dotfiles
   $(basename "$0") tmux --name review            # Second session for same path
   $(basename "$0") tmux ls                       # List remote tmux sessions
-  $(basename "$0") tmux kill-session -t <name>   # Kill a remote tmux session
+  $(basename "$0") tmux kill-session -t <name>   # Confirm, then kill one session
+  $(basename "$0") tmux --force kill-server      # Kill all sessions without prompting
   $(basename "$0") tmux -- <raw args>            # Run any remote tmux command
   $(basename "$0") connect                       # Auto-select profile, attach "main"
   $(basename "$0") connect my-feature            # Attach to "my-feature" session
@@ -382,12 +384,120 @@ EOF
         "if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s $(shell_quote "$session") -c $path_expr $(shell_quote "$agent_command"); else cd $path_expr || exit; echo 'tmux not found on remote host; falling back to direct $tool' >&2; exec zsh -lic $(shell_quote "exec $tool"); fi"
 }
 
+tmux_destructive_subcommand() {
+    local arg
+    local command_position=true
+    local global_options=true
+
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        if [[ "$global_options" = true ]]; then
+            case "$arg" in
+                -c|-f|-L|-S|-T)
+                    shift
+                    [[ $# -gt 0 ]] && shift
+                    continue
+                    ;;
+                --)
+                    global_options=false
+                    shift
+                    continue
+                    ;;
+                -*)
+                    shift
+                    continue
+                    ;;
+                *)
+                    global_options=false
+                    ;;
+            esac
+        fi
+
+        if [[ "$command_position" = true ]]; then
+            case "$arg" in
+                kill-ses*)
+                    printf 'kill-session'
+                    return 0
+                    ;;
+                kill-ser*)
+                    printf 'kill-server'
+                    return 0
+                    ;;
+            esac
+            command_position=false
+        elif [[ "$arg" = ";" || "$arg" = '\;' ]]; then
+            command_position=true
+        fi
+        shift
+    done
+
+    return 1
+}
+
+tmux_target_session() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t)
+                shift
+                [[ $# -gt 0 ]] && printf '%s' "$1"
+                return 0
+                ;;
+            -t*)
+                printf '%s' "${1#-t}"
+                return 0
+                ;;
+        esac
+        shift
+    done
+}
+
+confirm_destructive_tmux() {
+    local host="$1"
+    local subcommand="$2"
+    local tmux_command="$3"
+    shift 3
+    local reply target session_count
+
+    if [[ ! -t 0 ]]; then
+        error "Refusing destructive tmux command without interactive confirmation."
+        echo "  Re-run with --force before the tmux subcommand to skip confirmation." >&2
+        return 1
+    fi
+
+    printf 'Remote host: %s\n' "$host" >&2
+    printf 'Command: %s\n' "$tmux_command" >&2
+    case "$subcommand" in
+        kill-session)
+            target="$(tmux_target_session "$@")"
+            printf 'Session: %s\n' "${target:-tmux default target}" >&2
+            warn "This will terminate the remote tmux session." >&2
+            ;;
+        kill-server)
+            session_count="$(ssh "$host" "tmux list-sessions -F '#{session_name}' 2>/dev/null | wc -l" 2>/dev/null || true)"
+            session_count="${session_count//[[:space:]]/}"
+            if [[ -n "$session_count" ]]; then
+                warn "This will terminate all $session_count remote tmux session(s)." >&2
+            else
+                warn "This will terminate all remote tmux sessions." >&2
+            fi
+            ;;
+    esac
+
+    printf 'Continue? [y/N] ' >&2
+    IFS= read -r reply || reply=""
+    case "$reply" in
+        y|Y|yes|YES|Yes) return 0 ;;
+        *) warn "Cancelled." >&2; return 1 ;;
+    esac
+}
+
 cmd_host_tmux() {
     local host="ai-series"
     local path=""
     local name=""
     local passthrough=false
-    local session path_expr tmux_command arg
+    local force=false
+    local session path_expr tmux_command arg destructive_command
     local -a tmux_args=()
 
     while [[ $# -gt 0 ]]; do
@@ -424,6 +534,10 @@ cmd_host_tmux() {
                 fi
                 shift
                 ;;
+            -f|--force)
+                force=true
+                shift
+                ;;
             --)
                 shift
                 tmux_args=("$@")
@@ -432,7 +546,7 @@ cmd_host_tmux() {
                 ;;
             -h|--help)
                 cat <<EOF
-Usage: $(basename "$0") tmux [--host <host>] [--name <name>] [path | <tmux-subcommand> [args...]]
+Usage: $(basename "$0") tmux [--host <host>] [--name <name>] [-f|--force] [path | <tmux-subcommand> [args...]]
 
 Attach to a persistent tmux shell session on a remote host.
 Defaults to ~/Codebase on ai-series.
@@ -441,14 +555,25 @@ The session name is derived from the path, so the same path always
 reattaches to the same session. Pass --name to keep several independent
 sessions for one path (e.g. --name review, --name scratch).
 
-The following tmux subcommands are passed through to the remote host:
-  ls, list-sessions, kill-session, kill-server, has-session
-All arguments after a recognized subcommand are passed to tmux unchanged
-and are no longer parsed by dev. Use -- to pass through any tmux command.
+Remote tmux commands:
+  ls, list-sessions              List sessions; runs immediately
+  has-session                    Check a session; runs immediately
+  kill-session -t <name>         Kill one session; asks for confirmation
+  kill-server                    Kill all sessions; asks for confirmation
+
+Options:
+  --host <host>                  Remote SSH host (default: ai-series)
+  --name <name>                  Keep several sessions for one path
+  -f, --force                    Skip destructive-command confirmation
+  -- <tmux args...>              Run a raw tmux command; destructive commands
+                                 still require confirmation
+
+Destructive commands fail in non-interactive shells unless --force is used.
 
 Examples:
   $(basename "$0") tmux ls
   $(basename "$0") tmux kill-session -t <name>
+  $(basename "$0") tmux --force kill-server
   $(basename "$0") tmux -- ls -F '#{session_name}'
 EOF
                 return 0
@@ -486,6 +611,11 @@ EOF
         for arg in "${tmux_args[@]}"; do
             tmux_command+=" $(shell_quote "$arg")"
         done
+        if destructive_command="$(tmux_destructive_subcommand "${tmux_args[@]}")"; then
+            if [[ "$force" != true ]]; then
+                confirm_destructive_tmux "$host" "$destructive_command" "$tmux_command" "${tmux_args[@]}" || exit 1
+            fi
+        fi
         exec ssh "$host" "$tmux_command"
     fi
 

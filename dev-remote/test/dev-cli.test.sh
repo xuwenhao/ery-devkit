@@ -29,6 +29,26 @@ assert_args() {
     fi
 }
 
+assert_fails_without_ssh() {
+    local expected="$1"
+    shift
+    : >"$DEV_TEST_SSH_ARGS"
+    if "$@" >"$TMPDIR/command.out" 2>&1; then
+        printf 'Expected command to fail: %s\n' "$*" >&2
+        exit 1
+    fi
+    if ! grep -Fq "$expected" "$TMPDIR/command.out"; then
+        printf 'Expected failure output to contain:\n%s\n\nActual output:\n' "$expected" >&2
+        cat "$TMPDIR/command.out" >&2
+        exit 1
+    fi
+    if [[ -s "$DEV_TEST_SSH_ARGS" ]]; then
+        printf 'Expected failure before ssh, got args:\n' >&2
+        cat "$DEV_TEST_SSH_ARGS" >&2
+        exit 1
+    fi
+}
+
 session_slug() {
     local original="$1"
     local path="$1"
@@ -98,19 +118,56 @@ assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfil
 "$DEV" tmux --host=hfmac '~/Codebase/personal/dotfiles'
 assert_args "$(expected_tmux_args '~/Codebase/personal/dotfiles' "$remote_dotfiles" hfmac)"
 
-# Recognized tmux subcommands and all following args are passed through without
+# Read-only tmux subcommands and all following args are passed through without
 # allocating a tty.
 "$DEV" tmux ls
 assert_args $'ai-series\ntmux '\''ls'\'''
 
-"$DEV" tmux kill-session -t foo
-assert_args $'ai-series\ntmux '\''kill-session'\'' '\''-t'\'' '\''foo'\'''
+# Destructive commands fail closed without a local interactive terminal.
+assert_fails_without_ssh \
+    'Refusing destructive tmux command without interactive confirmation.' \
+    "$DEV" tmux kill-session -t foo
+
+# --force is a dev option before the native tmux subcommand.
+"$DEV" tmux --host hfmac --force kill-session -t foo
+assert_args $'hfmac\ntmux '\''kill-session'\'' '\''-t'\'' '\''foo'\'''
+
+assert_fails_without_ssh \
+    'Refusing destructive tmux command without interactive confirmation.' \
+    "$DEV" tmux kill-server
+
+"$DEV" tmux -f kill-server
+assert_args $'ai-series\ntmux '\''kill-server'\'''
 
 "$DEV" tmux --host hfmac ls
 assert_args $'hfmac\ntmux '\''ls'\'''
 
 "$DEV" tmux -- ls -F '#{session_name}'
 assert_args $'ai-series\ntmux '\''ls'\'' '\''-F'\'' '\''#{session_name}'\'''
+
+# Raw passthrough does not bypass destructive-command confirmation.
+assert_fails_without_ssh \
+    'Refusing destructive tmux command without interactive confirmation.' \
+    "$DEV" tmux -- kill-session -t raw
+
+assert_fails_without_ssh \
+    'Refusing destructive tmux command without interactive confirmation.' \
+    "$DEV" tmux -- -L dev-socket kill-server
+
+assert_fails_without_ssh \
+    'Refusing destructive tmux command without interactive confirmation.' \
+    "$DEV" tmux -- ls ';' kill-server
+
+# A session whose name matches a destructive command is still a read-only query.
+"$DEV" tmux -- has-session -t kill-server
+assert_args $'ai-series\ntmux '\''has-session'\'' '\''-t'\'' '\''kill-server'\'''
+
+"$DEV" tmux --force -- kill-session -t raw
+assert_args $'ai-series\ntmux '\''kill-session'\'' '\''-t'\'' '\''raw'\'''
+
+tmux_help="$("$DEV" tmux --help)"
+grep -Fq 'kill-session -t <name>         Kill one session; asks for confirmation' <<<"$tmux_help"
+grep -Fq -- '-f, --force                    Skip destructive-command confirmation' <<<"$tmux_help"
 
 # A path still uses attach-or-create with a tty and the existing session slug.
 "$DEV" tmux "$HOME/Codebase"
