@@ -66,7 +66,8 @@ Commands:
                               Attach Codex in a persistent host session
   claude [--host <host>] [path]
                               Attach Claude in a persistent host session
-  tmux [--host <host>] [--name <name>] [path | <tmux-subcommand> [args...]]
+  tmux [--host <host>] [--name <name>] [-f|--force]
+       [path | <tmux-subcommand> [args...]]
                               Attach to a persistent host shell tmux session
                               or run a remote tmux management command
                               (--name keeps several sessions for one path)
@@ -97,10 +98,12 @@ scoped. The session name is derived from the path, so the same path always
 reattaches to the same session — pass `--name` to keep several independent
 sessions for one path. The optional host defaults to `ai-series`:
 
-The `ls`, `list-sessions`, `kill-session`, `kill-server`, and `has-session`
-subcommands are passed through to tmux on the remote host. Arguments after a
-recognized subcommand are no longer parsed by `dev`; use `dev tmux -- <raw
-args>` as an escape hatch for any other tmux command.
+The `ls`, `list-sessions`, and `has-session` subcommands run immediately on the
+remote host. The native `kill-session` and `kill-server` names are preserved,
+but `dev` asks for local confirmation before forwarding them. In a
+non-interactive shell they fail closed; place `-f` or `--force` before the tmux
+subcommand to skip confirmation. Raw `dev tmux -- <tmux args...>` commands use
+the same destructive-command check.
 
 ```bash
 dev codex ~/Codebase/personal/dotfiles
@@ -112,6 +115,7 @@ dev tmux --host hfmac ~/Codebase/personal/dotfiles
 dev tmux --name review ~/Codebase/personal/dotfiles   # second session, same path
 dev tmux ls
 dev tmux kill-session -t <name>
+dev tmux --force kill-server
 ```
 
 ## Worktree scaffolding

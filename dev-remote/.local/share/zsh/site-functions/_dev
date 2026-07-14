@@ -69,6 +69,7 @@ _dev() {
                     _arguments \
                         '--host[SSH host to use]:host alias' \
                         '--name[Keep several sessions for one path]:session name' \
+                        '(-f --force)'{-f,--force}'[Skip destructive-command confirmation]' \
                         '1:remote path or tmux subcommand:(ls list-sessions kill-session kill-server has-session)' \
                         '*::tmux argument'
                     ;;
