@@ -1,4 +1,4 @@
-name: Publish mccusage
+name: Publish openclaw-discord-autoname
 
 on:
   release:
@@ -9,12 +9,12 @@ permissions:
   id-token: write
 
 concurrency:
-  group: publish-mccusage-${{ github.event.release.tag_name }}
+  group: publish-openclaw-discord-autoname-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'mccusage-v')
+    if: startsWith(github.event.release.tag_name, 'openclaw-discord-autoname-v')
     runs-on: ubuntu-latest
 
     steps:
@@ -35,27 +35,27 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify release tag
-        working-directory: packages/mccusage
+        working-directory: packages/openclaw-discord-autoname
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           package_version="$(node -p "require('./package.json').version")"
-          test "$RELEASE_TAG" = "mccusage-v$package_version"
+          test "$RELEASE_TAG" = "openclaw-discord-autoname-v$package_version"
 
       - name: Test
-        run: pnpm --filter @xuwenhao83/mccusage test
+        run: pnpm --filter @xuwenhao83/openclaw-discord-autoname test
 
       - name: Typecheck
-        run: pnpm --filter @xuwenhao83/mccusage typecheck
+        run: pnpm --filter @xuwenhao83/openclaw-discord-autoname typecheck
 
       - name: Build
-        run: pnpm --filter @xuwenhao83/mccusage build
+        run: pnpm --filter @xuwenhao83/openclaw-discord-autoname build
 
       - name: Inspect package
-        working-directory: packages/mccusage
+        working-directory: packages/openclaw-discord-autoname
         run: npm pack --dry-run --ignore-scripts
 
       - name: Publish
-        working-directory: packages/mccusage
+        working-directory: packages/openclaw-discord-autoname
         # npm Trusted Publishing generates provenance automatically.
         run: npm publish
