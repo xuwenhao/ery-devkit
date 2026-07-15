@@ -1,7 +1,12 @@
 {
   "name": "@xuwenhao83/mccusage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Aggregate ccusage token reports across multiple configured machines.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xuwenhao/ery-devkit.git",
+    "directory": "packages/mccusage"
+  },
   "type": "module",
   "bin": {
     "mccusage": "./dist/cli.js"
