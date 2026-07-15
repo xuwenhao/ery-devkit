@@ -34,6 +34,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify release tag
+        working-directory: packages/mccusage
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "mccusage-v$package_version"
+
       - name: Test
         run: pnpm --filter @xuwenhao83/mccusage test
 
@@ -42,14 +50,6 @@ jobs:
 
       - name: Build
         run: pnpm --filter @xuwenhao83/mccusage build
-
-      - name: Verify release tag
-        working-directory: packages/mccusage
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          package_version="$(node -p "require('./package.json').version")"
-          test "$RELEASE_TAG" = "mccusage-v$package_version"
 
       - name: Inspect package
         working-directory: packages/mccusage
