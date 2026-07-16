@@ -64,12 +64,16 @@ Options:
   --until <YYYY-MM-DD>     End date passed to ccusage
   --no-cost                Hide cost fields in ccusage JSON/output
   --include-cost           Show cost fields (default; kept for compatibility)
+  --hide-models            Hide the per-agent Models column (default)
+  --show-models            Show the per-agent Models column
   --json                   Print aggregate JSON
   --concurrency <n>        Concurrent target jobs (default: 4)
   -h, --help               Show this help
 ```
 
 Exit code is 2 if any targets fail; their errors appear in a Failures table below the main output.
+
+The per-agent Models column is hidden by default to keep the table compact (agents like OpenClaw can report many models). Pass `--show-models` to bring it back.
 
 By default, every agent reported by `ccusage` is included. Use `--agents` only when a focused report is needed.
 

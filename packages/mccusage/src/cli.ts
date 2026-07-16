@@ -14,6 +14,7 @@ interface CliOptions {
   until?: string;
   timezone?: string;
   includeCost: boolean;
+  showModels: boolean;
   json: boolean;
   concurrency: number;
 }
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
-    console.log(formatTextReport(report, { view: options.view }));
+    console.log(formatTextReport(report, { view: options.view, showModels: options.showModels }));
   }
 
   if (report.failures.length > 0) {
@@ -59,6 +60,7 @@ function parseArgs(args: string[]): CliOptions {
     view: viewArg as View,
     configPath: defaultConfigPath(),
     includeCost: true,
+    showModels: false,
     json: false,
     concurrency: 4
   };
@@ -86,6 +88,12 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--no-cost":
         options.includeCost = false;
+        break;
+      case "--hide-models":
+        options.showModels = false;
+        break;
+      case "--show-models":
+        options.showModels = true;
         break;
       case "--json":
         options.json = true;
@@ -142,6 +150,8 @@ Options:
   --until <YYYY-MM-DD>     End date passed to ccusage
   --no-cost                Hide cost fields in ccusage JSON/output
   --include-cost           Show cost fields (default; kept for compatibility)
+  --hide-models            Hide the per-agent Models column (default)
+  --show-models            Show the per-agent Models column
   --json                   Print aggregate JSON
   --concurrency <n>        Concurrent target jobs (default: 4)
   -h, --help               Show this help
