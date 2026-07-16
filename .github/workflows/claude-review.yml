@@ -3,6 +3,11 @@ on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
 
+# 同一 PR 同一时间只跑一个实例；新触发时取消正在运行的旧实例
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review:
     runs-on: ubuntu-latest
