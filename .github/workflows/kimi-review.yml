@@ -1,0 +1,40 @@
+name: Kimi Code Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+# 同一 PR 同一时间只跑一个实例；新触发时取消正在运行的旧实例
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read # let Kimi read CI results
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Kimi Review
+        uses: xuwenhao/kimi-code-action@main
+        with:
+          kimi_api_key: ${{ secrets.KIMI_API_KEY }}
+          kimi_model: k3
+          track_progress: "true"
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Perform a comprehensive code review of this pull request.
+            Only report noteworthy issues. Use inline comments for specific issues,
+            and post a top-level summary, including when no issues are found.
+          kimi_args: |
+            --max-turns 50
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
