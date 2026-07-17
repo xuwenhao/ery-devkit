@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 1
 
       - name: Kimi Review
-        uses: xuwenhao/kimi-code-action@main
+        uses: xuwenhao/kimi-code-action@v0
         with:
           kimi_api_key: ${{ secrets.KIMI_API_KEY }}
           kimi_model: k3
