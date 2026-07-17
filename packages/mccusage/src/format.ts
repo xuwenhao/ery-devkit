@@ -4,6 +4,7 @@ type Align = "left" | "right";
 
 interface FormatOptions {
   view?: View;
+  showModels?: boolean;
 }
 
 interface Column {
@@ -13,12 +14,13 @@ interface Column {
 
 export function formatTextReport(report: AggregateReport, options: FormatOptions = {}): string {
   const view = options.view ?? "daily";
+  const showModels = options.showModels ?? false;
   const hasCost = reportHasCost(report);
   const lines = [
     "",
     titleBox(`Multi-Machine Token Usage Report - ${titleCase(view)}`),
     "",
-    renderUsageTable(report, view, hasCost)
+    renderUsageTable(report, view, hasCost, showModels)
   ];
 
   if (report.failures.length > 0) {
@@ -38,49 +40,54 @@ export function formatTextReport(report: AggregateReport, options: FormatOptions
   return lines.join("\n");
 }
 
-function renderUsageTable(report: AggregateReport, view: View, hasCost: boolean): string {
+function renderUsageTable(report: AggregateReport, view: View, hasCost: boolean, showModels: boolean): string {
   const rows: string[][] = [];
   const breakdowns = report.breakdowns.length > 0 ? report.breakdowns : fallbackBreakdowns(report);
 
   for (const breakdown of breakdowns) {
-    rows.push(usageRow(periodLabel(breakdown.period), "All", "", breakdown.totals, hasCost));
+    rows.push(usageRow(periodLabel(breakdown.period), "All", "", breakdown.totals, hasCost, showModels));
     for (const agent of breakdown.agents) {
-      rows.push(usageRow("", `- ${agentLabel(agent.agent)}`, formatModels(agent), agent.totals, hasCost));
+      rows.push(usageRow("", `- ${agentLabel(agent.agent)}`, formatModels(agent), agent.totals, hasCost, showModels));
     }
   }
-  rows.push(usageRow("Total", "", "", report.totals, hasCost));
+  rows.push(usageRow("Total", "", "", report.totals, hasCost, showModels));
 
-  return renderTable(usageColumns(view, hasCost), rows);
+  return renderTable(usageColumns(view, hasCost, showModels), rows);
 }
 
-function usageColumns(view: View, hasCost: boolean): Column[] {
+function usageColumns(view: View, hasCost: boolean, showModels: boolean): Column[] {
   const columns: Column[] = [
     { header: firstColumn(view), align: "left" },
-    { header: "Agent", align: "left" },
-    { header: "Models", align: "left" },
+    { header: "Agent", align: "left" }
+  ];
+  if (showModels) {
+    columns.push({ header: "Models", align: "left" });
+  }
+  columns.push(
     { header: "Input", align: "right" },
     { header: "Output", align: "right" },
     { header: "Cache Create", align: "right" },
     { header: "Cache Read", align: "right" },
     { header: "Total Tokens", align: "right" }
-  ];
+  );
   if (hasCost) {
     columns.push({ header: "Cost (USD)", align: "right" });
   }
   return columns;
 }
 
-function usageRow(period: string, agent: string, models: string, total: TokenTotals, hasCost: boolean): string[] {
-  const row = [
-    period,
-    agent,
-    models,
+function usageRow(period: string, agent: string, models: string, total: TokenTotals, hasCost: boolean, showModels: boolean): string[] {
+  const row = [period, agent];
+  if (showModels) {
+    row.push(models);
+  }
+  row.push(
     formatNumber(total.inputTokens),
     formatNumber(total.outputTokens),
     formatNumber(total.cacheCreationTokens),
     formatNumber(total.cacheReadTokens),
     formatNumber(total.totalTokens)
-  ];
+  );
   if (hasCost) {
     row.push(formatCurrency(total.costUSD ?? 0));
   }
