@@ -10,6 +10,8 @@ concurrency:
 
 jobs:
   review:
+    # Kimi API 不稳定期间默认关闭；仓库变量 KIMI_REVIEW_ENABLED=true 时恢复。
+    if: ${{ vars.KIMI_REVIEW_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
