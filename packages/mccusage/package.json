@@ -1,6 +1,6 @@
 {
   "name": "@xuwenhao83/mccusage",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Aggregate ccusage token reports across multiple configured machines.",
   "repository": {
     "type": "git",

@@ -3,4 +3,6 @@
 **/.config/**/config.json
 **/node_modules/
 **/dist/
+.worktree/
+.worktrees/
 .DS_Store
