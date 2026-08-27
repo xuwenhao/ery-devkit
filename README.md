@@ -1,3 +1,5 @@
+
+
 # ery-devkit
 
 A collection of personal development tools. Most host tools live in their own
@@ -19,6 +21,8 @@ pnpm install
 pnpm --filter @xuwenhao83/openclaw-discord-autoname test
 pnpm --filter @xuwenhao83/openclaw-discord-autoname build
 ```
+
+The same `test` and `build` scripts are also available for `@xuwenhao83/mccusage`.
 
 ## Installation
 
