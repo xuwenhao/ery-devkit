@@ -641,16 +641,19 @@ if [ "$(uname -s)" = Darwin ]; then
                 echo "Install $plist before using dev tmux on macOS." >&2
                 exit 1
             fi
-            launchctl bootstrap "$domain" "$plist" || exit 1
+            # Another first attach may register the service after our check.
+            launchctl bootstrap "$domain" "$plist" ||
+                launchctl print "$service" >/dev/null 2>&1 || exit 1
         fi
+        # A running job may still be opening the socket. Do not kill it with -k.
         launchctl kickstart "$service" || exit 1
         ready=false
-        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
             if tmux list-sessions >/dev/null 2>&1; then ready=true; break; fi
-            sleep 0.2
+            sleep 0.5
         done
-        if [ "$ready" != true ]; then
-            echo "GUI tmux server did not become ready; check $service." >&2
+        if [ "$ready" != true ] && ! tmux list-sessions >/dev/null 2>&1; then
+            echo "GUI tmux server did not become ready within 10 seconds; check $service (it may still be starting)." >&2
             exit 1
         fi
     fi

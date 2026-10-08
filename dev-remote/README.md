@@ -129,20 +129,22 @@ dev tmux --force kill-server
 - `dtach` on the remote (or `tmux` if using `--tmux`)
 - `gh` on the remote (for worktree PR safety checks)
 
-## License
-
-MIT.
-
-### macOS host tmux server
+## macOS host tmux server
 
 On macOS, `dev tmux` starts a missing server through the LaunchAgent
 `~/Library/LaunchAgents/com.xuwenhao.tmux-server.plist` in the graphical login
 session. Install the dotfiles `tmux` LaunchAgent on remote Macs first; a GUI
-login must be active. This lets panes use 1Password desktop integration and
-other GUI-session services. Missing agents or startup failures stop the attach
+login must be active. Startup waits up to 10 seconds for the server; concurrent
+first connections can reuse a service registered by another caller. This lets
+panes use 1Password desktop integration and other GUI-session services.
+Missing agents or startup failures stop the attach
 instead of starting a server inside SSH. Linux keeps the usual behavior.
 
 Existing servers are reused; this does not migrate an SSH-owned server. Finish
 running jobs before restarting that server using the dotfiles migration script.
 The first `op vault list` may require approval on the remote Mac desktop.
 Raw management commands (`dev tmux -- ...`) retain their existing behavior.
+
+## License
+
+MIT.

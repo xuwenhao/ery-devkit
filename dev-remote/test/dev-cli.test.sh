@@ -23,6 +23,13 @@ assert_args() {
     local expected="$1"
     local actual
     actual="$(cat "$DEV_TEST_SSH_ARGS")"
+    # Check SSH/path quoting here; exercise the emitted preflight with mocks
+    # below instead of maintaining a second copy of its implementation.
+    if [[ "$expected" = *'<gui-preflight>'* ]]; then
+        local prefix="${expected%%<gui-preflight>*}"
+        local suffix="${expected#*<gui-preflight>}"
+        if [[ "$actual" = "$prefix"*"$suffix" ]]; then return 0; fi
+    fi
     if [[ "$actual" != "$expected" ]]; then
         printf 'Expected args:\n%s\n\nActual args:\n%s\n' "$expected" "$actual" >&2
         exit 1
@@ -76,38 +83,6 @@ expected_agent_args() {
         "$host" "$session" "$remote_path" "$tool" "$remote_path" "$tool" "$tool"
 }
 
-gui_preflight=$(cat <<'GUI'
-if [ "$(uname -s)" = Darwin ]; then
-    if ! tmux list-sessions >/dev/null 2>&1; then
-        domain="gui/$(id -u)"
-        service="$domain/com.xuwenhao.tmux-server"
-        plist="$HOME/Library/LaunchAgents/com.xuwenhao.tmux-server.plist"
-        if ! launchctl print "$service" >/dev/null 2>&1; then
-            if [ ! -f "$plist" ]; then
-                echo "Install $plist before using dev tmux on macOS." >&2
-                exit 1
-            fi
-            launchctl bootstrap "$domain" "$plist" || exit 1
-        fi
-        launchctl kickstart "$service" || exit 1
-        ready=false
-        for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if tmux list-sessions >/dev/null 2>&1; then ready=true; break; fi
-            sleep 0.2
-        done
-        if [ "$ready" != true ]; then
-            echo "GUI tmux server did not become ready; check $service." >&2
-            exit 1
-        fi
-    fi
-    # -N prevents a race from creating an SSH-owned server after the check.
-    set -- -N
-else
-    set --
-fi
-GUI
-)
-
 expected_tmux_args() {
     local path="$1"
     local remote_path="$2"
@@ -115,9 +90,9 @@ expected_tmux_args() {
     local name="${4:-}"
     local session="dev-host-$(session_slug "$path")"
     [[ -n "$name" ]] && session="$session-${name//[^[:alnum:]_-]/_}"
-    printf -- '-t\n%s\nif command -v tmux >/dev/null 2>&1; then %s
+    printf -- '-t\n%s\nif command -v tmux >/dev/null 2>&1; then <gui-preflight>
 exec tmux "$@" new-session -A -s '\''%s'\'' -c %s; else cd %s || exit; echo '\''tmux not found on remote host; falling back to direct shell'\'' >&2; exec zsh -l || exec bash -l; fi' \
-        "$host" "$gui_preflight" "$session" "$remote_path" "$remote_path"
+        "$host" "$session" "$remote_path" "$remote_path"
 }
 
 remote_codebase='"$HOME"/'\''Codebase'\'''
@@ -272,26 +247,64 @@ MOCK
 cat >"$BIN/tmux" <<'MOCK'
 #!/bin/bash
 printf 'tmux %s\n' "$*" >>"$TEST_LOG"
-if [ "$1" = list-sessions ]; then [ -f "$TEST_READY" ]; fi
+if [ "$1" = list-sessions ]; then
+    polls=0
+    if [ -f "$TEST_POLLS" ]; then polls=$(cat "$TEST_POLLS"); fi
+    polls=$((polls + 1))
+    printf '%s\n' "$polls" >"$TEST_POLLS"
+    if [ "${TEST_READY_AFTER_POLLS:-0}" -gt 0 ] && [ "$polls" -ge "$TEST_READY_AFTER_POLLS" ]; then
+        touch "$TEST_READY"
+    fi
+    [ -f "$TEST_READY" ]
+fi
 MOCK
 cat >"$BIN/launchctl" <<'MOCK'
 #!/bin/bash
 printf 'launchctl %s\n' "$*" >>"$TEST_LOG"
 case "$1" in
-print) [ "${TEST_LOADED:-false}" = true ] ;;
-bootstrap) [ "${TEST_BOOTSTRAP_FAIL:-false}" != true ] ;;
-kickstart) if [ "${TEST_START_FAIL:-false}" != true ]; then touch "$TEST_READY"; fi ;;
+print) [ "${TEST_LOADED:-false}" = true ] || [ -f "$TEST_REGISTERED" ] ;;
+bootstrap)
+    if [ "${TEST_BOOTSTRAP_RACE:-false}" = true ]; then
+        touch "$TEST_REGISTERED" # A competing caller registered the service.
+        exit 1
+    fi
+    [ "${TEST_BOOTSTRAP_FAIL:-false}" != true ]
+    ;;
+kickstart)
+    [ "${TEST_KICKSTART_FAIL:-false}" != true ] || exit 1
+    # A running launchd job is a successful no-op; readiness can arrive later.
+    if [ "${TEST_ALREADY_RUNNING:-false}" != true ] && [ "${TEST_START_FAIL:-false}" != true ]; then
+        touch "$TEST_READY"
+    fi
+    ;;
+*) exit 1 ;;
 esac
 MOCK
 cat >"$BIN/sleep" <<'MOCK'
 #!/bin/bash
+printf 'sleep %s\n' "$*" >>"$TEST_LOG"
 exit 0
 MOCK
 chmod +x "$BIN/uname" "$BIN/tmux" "$BIN/launchctl" "$BIN/sleep"
 export TEST_OS=Darwin TEST_LOG="$TMPDIR/remote.log" TEST_READY="$TMPDIR/ready"
+export TEST_REGISTERED="$TMPDIR/registered" TEST_POLLS="$TMPDIR/polls"
 run_remote() {
     HOME="$TMPDIR/remote-home" bash -c "$remote_command"
 }
+reset_remote() {
+    : >"$TEST_LOG"
+    rm -f "$TEST_READY" "$TEST_REGISTERED" "$TEST_POLLS"
+    export TEST_OS=Darwin TEST_LOADED=false TEST_BOOTSTRAP_FAIL=false
+    export TEST_BOOTSTRAP_RACE=false TEST_KICKSTART_FAIL=false TEST_START_FAIL=false
+    export TEST_ALREADY_RUNNING=false TEST_READY_AFTER_POLLS=0
+}
+assert_no_attach() {
+    if grep -q new-session "$TEST_LOG"; then
+        echo 'Unexpected attach after launchd startup failure' >&2
+        exit 1
+    fi
+}
+reset_remote
 run_remote
 grep -Fq 'launchctl bootstrap gui/' "$TEST_LOG"
 grep -Fq 'launchctl kickstart gui/' "$TEST_LOG"
@@ -299,28 +312,52 @@ grep -Fq 'tmux -N new-session -A' "$TEST_LOG"
 : >"$TEST_LOG"
 run_remote
 if grep -q launchctl "$TEST_LOG"; then exit 1; fi
-rm "$TEST_READY"
+reset_remote
 export TEST_OS=Linux
-: >"$TEST_LOG"
 run_remote
 if grep -q launchctl "$TEST_LOG"; then exit 1; fi
 grep -Fq 'tmux new-session -A' "$TEST_LOG"
-export TEST_OS=Darwin TEST_LOADED=true
-: >"$TEST_LOG"
+reset_remote
+export TEST_LOADED=true
 run_remote
 if grep -q 'launchctl bootstrap' "$TEST_LOG"; then exit 1; fi
 grep -Fq 'launchctl kickstart' "$TEST_LOG"
-rm "$TEST_READY"
-export TEST_LOADED=false TEST_BOOTSTRAP_FAIL=true
-: >"$TEST_LOG"
+
+# Two callers can both observe an unloaded service. Losing bootstrap must not
+# abort the second attach once the winner has registered the LaunchAgent.
+reset_remote
+export TEST_BOOTSTRAP_RACE=true
+run_remote
+[[ "$(grep -c 'launchctl print' "$TEST_LOG")" -eq 2 ]]
+grep -Fq 'tmux -N new-session -A' "$TEST_LOG"
+
+# kickstart can succeed without restarting an already-running job. A socket
+# appearing after the former 2-second budget should still allow attachment.
+reset_remote
+export TEST_LOADED=true TEST_ALREADY_RUNNING=true TEST_READY_AFTER_POLLS=14
+run_remote
+if grep -q 'launchctl bootstrap' "$TEST_LOG"; then exit 1; fi
+if grep -q 'kickstart -k' "$TEST_LOG"; then exit 1; fi
+grep -Fq 'sleep 0.5' "$TEST_LOG"
+grep -Fq 'tmux -N new-session -A' "$TEST_LOG"
+
+reset_remote
+export TEST_BOOTSTRAP_FAIL=true
 if run_remote; then exit 1; fi
-if grep -q new-session "$TEST_LOG"; then exit 1; fi
-export TEST_BOOTSTRAP_FAIL=false TEST_START_FAIL=true
-: >"$TEST_LOG"
+assert_no_attach
+if grep -q 'launchctl kickstart' "$TEST_LOG"; then exit 1; fi
+reset_remote
+export TEST_KICKSTART_FAIL=true
 if run_remote; then exit 1; fi
-if grep -q new-session "$TEST_LOG"; then exit 1; fi
+assert_no_attach
+if grep -q '^sleep ' "$TEST_LOG"; then exit 1; fi
+reset_remote
+export TEST_START_FAIL=true
+if run_remote; then exit 1; fi
+assert_no_attach
+[[ "$(grep -c '^sleep 0.5$' "$TEST_LOG")" -eq 20 ]]
+reset_remote
 rm "$TMPDIR/remote-home/Library/LaunchAgents/com.xuwenhao.tmux-server.plist"
-: >"$TEST_LOG"
 if run_remote; then exit 1; fi
-if grep -q new-session "$TEST_LOG"; then exit 1; fi
+assert_no_attach
 printf 'GUI tmux startup tests passed\n'
