@@ -498,7 +498,7 @@ cmd_host_tmux() {
     local name=""
     local passthrough=false
     local force=false
-    local session path_expr tmux_command arg destructive_command
+    local session path_expr tmux_command arg destructive_command gui_preflight
     local -a tmux_args=()
 
     while [[ $# -gt 0 ]]; do
@@ -628,9 +628,44 @@ EOF
     fi
     path_expr="$(remote_path_expr "$path")"
 
+    # On macOS, starting a server from SSH loses access to GUI services such
+    # as 1Password. Fail closed if launchd cannot start the configured agent.
+    gui_preflight=$(cat <<'GUI'
+if [ "$(uname -s)" = Darwin ]; then
+    if ! tmux list-sessions >/dev/null 2>&1; then
+        domain="gui/$(id -u)"
+        service="$domain/com.xuwenhao.tmux-server"
+        plist="$HOME/Library/LaunchAgents/com.xuwenhao.tmux-server.plist"
+        if ! launchctl print "$service" >/dev/null 2>&1; then
+            if [ ! -f "$plist" ]; then
+                echo "Install $plist before using dev tmux on macOS." >&2
+                exit 1
+            fi
+            launchctl bootstrap "$domain" "$plist" || exit 1
+        fi
+        launchctl kickstart "$service" || exit 1
+        ready=false
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if tmux list-sessions >/dev/null 2>&1; then ready=true; break; fi
+            sleep 0.2
+        done
+        if [ "$ready" != true ]; then
+            echo "GUI tmux server did not become ready; check $service." >&2
+            exit 1
+        fi
+    fi
+    # -N prevents a race from creating an SSH-owned server after the check.
+    set -- -N
+else
+    set --
+fi
+GUI
+)
+
     info "Attaching to host tmux session '$session' on $host in $path"
     exec ssh -t "$host" \
-        "if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s $(shell_quote "$session") -c $path_expr; else cd $path_expr || exit; echo 'tmux not found on remote host; falling back to direct shell' >&2; exec zsh -l || exec bash -l; fi"
+        "if command -v tmux >/dev/null 2>&1; then $gui_preflight
+exec tmux \"\$@\" new-session -A -s $(shell_quote "$session") -c $path_expr; else cd $path_expr || exit; echo 'tmux not found on remote host; falling back to direct shell' >&2; exec zsh -l || exec bash -l; fi"
 }
 
 # Find running container, or start it if stopped.

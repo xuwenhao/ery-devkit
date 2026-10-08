@@ -76,6 +76,38 @@ expected_agent_args() {
         "$host" "$session" "$remote_path" "$tool" "$remote_path" "$tool" "$tool"
 }
 
+gui_preflight=$(cat <<'GUI'
+if [ "$(uname -s)" = Darwin ]; then
+    if ! tmux list-sessions >/dev/null 2>&1; then
+        domain="gui/$(id -u)"
+        service="$domain/com.xuwenhao.tmux-server"
+        plist="$HOME/Library/LaunchAgents/com.xuwenhao.tmux-server.plist"
+        if ! launchctl print "$service" >/dev/null 2>&1; then
+            if [ ! -f "$plist" ]; then
+                echo "Install $plist before using dev tmux on macOS." >&2
+                exit 1
+            fi
+            launchctl bootstrap "$domain" "$plist" || exit 1
+        fi
+        launchctl kickstart "$service" || exit 1
+        ready=false
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if tmux list-sessions >/dev/null 2>&1; then ready=true; break; fi
+            sleep 0.2
+        done
+        if [ "$ready" != true ]; then
+            echo "GUI tmux server did not become ready; check $service." >&2
+            exit 1
+        fi
+    fi
+    # -N prevents a race from creating an SSH-owned server after the check.
+    set -- -N
+else
+    set --
+fi
+GUI
+)
+
 expected_tmux_args() {
     local path="$1"
     local remote_path="$2"
@@ -83,8 +115,9 @@ expected_tmux_args() {
     local name="${4:-}"
     local session="dev-host-$(session_slug "$path")"
     [[ -n "$name" ]] && session="$session-${name//[^[:alnum:]_-]/_}"
-    printf -- '-t\n%s\nif command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s '\''%s'\'' -c %s; else cd %s || exit; echo '\''tmux not found on remote host; falling back to direct shell'\'' >&2; exec zsh -l || exec bash -l; fi' \
-        "$host" "$session" "$remote_path" "$remote_path"
+    printf -- '-t\n%s\nif command -v tmux >/dev/null 2>&1; then %s
+exec tmux "$@" new-session -A -s '\''%s'\'' -c %s; else cd %s || exit; echo '\''tmux not found on remote host; falling back to direct shell'\'' >&2; exec zsh -l || exec bash -l; fi' \
+        "$host" "$gui_preflight" "$session" "$remote_path" "$remote_path"
 }
 
 remote_codebase='"$HOME"/'\''Codebase'\'''
@@ -225,3 +258,69 @@ if [[ "$foo_no_slash_args" != "$foo_trailing_slash_args" ]]; then
     printf 'Expected trailing slash path to reuse the same session args\n' >&2
     exit 1
 fi
+
+# Exercise the actual remote command, including failure paths.
+"$DEV" tmux
+# The command spans lines; remove only ssh's -t and hostname lines.
+remote_command="$(sed '1,2d' "$DEV_TEST_SSH_ARGS")"
+mkdir -p "$TMPDIR/remote-home/Library/LaunchAgents"
+touch "$TMPDIR/remote-home/Library/LaunchAgents/com.xuwenhao.tmux-server.plist"
+cat >"$BIN/uname" <<'MOCK'
+#!/bin/bash
+printf '%s\n' "$TEST_OS"
+MOCK
+cat >"$BIN/tmux" <<'MOCK'
+#!/bin/bash
+printf 'tmux %s\n' "$*" >>"$TEST_LOG"
+if [ "$1" = list-sessions ]; then [ -f "$TEST_READY" ]; fi
+MOCK
+cat >"$BIN/launchctl" <<'MOCK'
+#!/bin/bash
+printf 'launchctl %s\n' "$*" >>"$TEST_LOG"
+case "$1" in
+print) [ "${TEST_LOADED:-false}" = true ] ;;
+bootstrap) [ "${TEST_BOOTSTRAP_FAIL:-false}" != true ] ;;
+kickstart) if [ "${TEST_START_FAIL:-false}" != true ]; then touch "$TEST_READY"; fi ;;
+esac
+MOCK
+cat >"$BIN/sleep" <<'MOCK'
+#!/bin/bash
+exit 0
+MOCK
+chmod +x "$BIN/uname" "$BIN/tmux" "$BIN/launchctl" "$BIN/sleep"
+export TEST_OS=Darwin TEST_LOG="$TMPDIR/remote.log" TEST_READY="$TMPDIR/ready"
+run_remote() {
+    HOME="$TMPDIR/remote-home" bash -c "$remote_command"
+}
+run_remote
+grep -Fq 'launchctl bootstrap gui/' "$TEST_LOG"
+grep -Fq 'launchctl kickstart gui/' "$TEST_LOG"
+grep -Fq 'tmux -N new-session -A' "$TEST_LOG"
+: >"$TEST_LOG"
+run_remote
+if grep -q launchctl "$TEST_LOG"; then exit 1; fi
+rm "$TEST_READY"
+export TEST_OS=Linux
+: >"$TEST_LOG"
+run_remote
+if grep -q launchctl "$TEST_LOG"; then exit 1; fi
+grep -Fq 'tmux new-session -A' "$TEST_LOG"
+export TEST_OS=Darwin TEST_LOADED=true
+: >"$TEST_LOG"
+run_remote
+if grep -q 'launchctl bootstrap' "$TEST_LOG"; then exit 1; fi
+grep -Fq 'launchctl kickstart' "$TEST_LOG"
+rm "$TEST_READY"
+export TEST_LOADED=false TEST_BOOTSTRAP_FAIL=true
+: >"$TEST_LOG"
+if run_remote; then exit 1; fi
+if grep -q new-session "$TEST_LOG"; then exit 1; fi
+export TEST_BOOTSTRAP_FAIL=false TEST_START_FAIL=true
+: >"$TEST_LOG"
+if run_remote; then exit 1; fi
+if grep -q new-session "$TEST_LOG"; then exit 1; fi
+rm "$TMPDIR/remote-home/Library/LaunchAgents/com.xuwenhao.tmux-server.plist"
+: >"$TEST_LOG"
+if run_remote; then exit 1; fi
+if grep -q new-session "$TEST_LOG"; then exit 1; fi
+printf 'GUI tmux startup tests passed\n'
